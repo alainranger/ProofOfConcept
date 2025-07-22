@@ -1,0 +1,6 @@
+@WebApiPdfReporting_HostAddress = http://localhost:5026
+
+GET {{WebApiPdfReporting_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

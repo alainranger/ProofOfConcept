@@ -1,0 +1,6 @@
+@port = 7032
+@baseUrl = https://localhost:{{port}}
+
+# For more info on HTTP files go to https://aka.ms/vs/httpfile
+GET {{baseUrl}}/items
+Accept: application/json

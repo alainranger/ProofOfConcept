@@ -38,9 +38,26 @@ app.MapGet("/items", async (OrderbBContext db) =>
 		.ToListAsync()
 		.ConfigureAwait(true));
 
+app.MapPut("/updatesort", async (OrderbBContext db, List<ItemSortDto> items) =>
+{
+	// Validate uniqueness of Position
+	if (items.Select(i => i.Position).Distinct().Count() != items.Count)
+	{
+		return Results.BadRequest("Each Position value must be unique.");
+	}
+
+	foreach (var item in items)
+	{
+		var entity = await db.Items.FindAsync(item.ItemId).ConfigureAwait(true);
+		if (entity != null)
+		{
+			entity.Position = item.Position;
+		}
+	}
+	await db.SaveChangesAsync().ConfigureAwait(true);
+	return Results.NoContent();
+});
+
 app.Run();
 
-record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
-{
-	public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
-}
+record ItemSortDto(int ItemId, int Position);

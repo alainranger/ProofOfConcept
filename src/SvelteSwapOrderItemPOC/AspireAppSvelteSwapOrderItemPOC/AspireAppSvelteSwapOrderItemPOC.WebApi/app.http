@@ -4,3 +4,24 @@
 # For more info on HTTP files go to https://aka.ms/vs/httpfile
 GET {{baseUrl}}/items
 Accept: application/json
+
+###
+
+# call updatesort
+PUT {{baseUrl}}/updatesort
+Content-type: application/json
+
+[
+  {
+    "itemId": 1,
+    "position": 3
+  },
+  {
+    "itemId": 2,
+    "position": 2
+  },
+  {
+    "itemId": 3,
+    "position": 1
+  }
+]

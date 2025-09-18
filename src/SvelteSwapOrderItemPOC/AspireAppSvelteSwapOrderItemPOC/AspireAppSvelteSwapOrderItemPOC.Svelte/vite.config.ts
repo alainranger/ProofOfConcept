@@ -7,7 +7,16 @@ export default defineConfig(({ mode }) => {
 	return {
 		plugins: [sveltekit()],
 		server: {
-			port: parseInt(env.VITE_PORT)
+			port: parseInt(env.VITE_PORT),
+			proxy: {
+				'/api': {
+					target: process.env.services__weatherapi__https__0 ||
+						process.env.services__weatherapi__http__0,
+					changeOrigin: true,
+					rewrite: (path) => path.replace(/^\/api/, ''),
+					secure: false,
+				}
+			}
 		},
 		build: {
 			outDir: 'dist',

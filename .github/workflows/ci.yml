@@ -52,7 +52,7 @@ jobs:
 
             - name: Install dependencies
               working-directory: src/AspireAppSvelte/AspireAppSvelte.Svelte
-              run: npm ci
+              run: npm install
 
             - name: Run ESLint
               working-directory: src/AspireAppSvelte/AspireAppSvelte.Svelte

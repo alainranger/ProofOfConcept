@@ -7,8 +7,8 @@
 
 	const currentPath = $derived($page.url.pathname);
 	const navItems = [
-		{ href: '/', label: 'Home', icon: '🏠' },
-		{ href: '/weather', label: 'Weather', icon: '🌤️' }
+		{ id: 1, href: '/', label: 'Home', icon: '🏠' },
+		{ id: 2, href: '/weather', label: 'Weather', icon: '🌤️' }
 	];
 
 	function isActivePath(href: string): boolean {
@@ -28,7 +28,7 @@
 					<a href="/" class="text-xl font-bold text-gray-900"> AspireApp 💗 Svelte </a>
 
 					<div class="hidden space-x-4 md:flex">
-						{#each navItems as item}
+						{#each navItems as item (item.id)}
 							<a
 								href={item.href}
 								class="rounded-md px-3 py-2 text-sm font-medium transition-colors duration-200 {isActivePath(

@@ -73,7 +73,7 @@
 					</tr>
 				</thead>
 				<tbody class="divide-y divide-gray-200">
-					{#each forecasts as forecast}
+					{#each forecasts as forecast (forecast.date)}
 						<tr class="hover:bg-gray-50">
 							<td class="px-6 py-4 text-sm whitespace-nowrap text-gray-900">
 								{formatDate(forecast.date)}

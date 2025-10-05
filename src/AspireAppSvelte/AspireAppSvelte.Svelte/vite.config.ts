@@ -16,12 +16,13 @@ export default defineConfig(({ mode }) => {
 			proxy: {
 				'/api': {
 					// Utilise les variables d'environnement Aspire
-					target: process.env.services__apiservice__https__0 ||
+					target:
+						process.env.services__apiservice__https__0 ||
 						process.env.services__apiservice__http__0 ||
 						'https://localhost:7218',
 					changeOrigin: true,
 					rewrite: (path) => path.replace(/^\/api/, ''),
-					secure: false,
+					secure: false
 				}
 			}
 		},
@@ -29,5 +30,5 @@ export default defineConfig(({ mode }) => {
 			port: parseInt(env.VITE_PREVIEW_PORT) || 4173,
 			host: true
 		}
-	}
+	};
 });

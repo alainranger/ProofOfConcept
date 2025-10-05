@@ -49,24 +49,24 @@
 				<thead class="bg-gray-50">
 					<tr>
 						<th
-							class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500"
+							class="px-6 py-3 text-left text-xs font-medium tracking-wider text-gray-500 uppercase"
 						>
 							Date
 						</th>
 						<th
-							class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500"
+							class="px-6 py-3 text-left text-xs font-medium tracking-wider text-gray-500 uppercase"
 							aria-label="Temperature in Celsius"
 						>
 							Temp. (C)
 						</th>
 						<th
-							class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500"
+							class="px-6 py-3 text-left text-xs font-medium tracking-wider text-gray-500 uppercase"
 							aria-label="Temperature in Fahrenheit"
 						>
 							Temp. (F)
 						</th>
 						<th
-							class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500"
+							class="px-6 py-3 text-left text-xs font-medium tracking-wider text-gray-500 uppercase"
 						>
 							Summary
 						</th>
@@ -75,16 +75,16 @@
 				<tbody class="divide-y divide-gray-200">
 					{#each forecasts as forecast}
 						<tr class="hover:bg-gray-50">
-							<td class="whitespace-nowrap px-6 py-4 text-sm text-gray-900">
+							<td class="px-6 py-4 text-sm whitespace-nowrap text-gray-900">
 								{formatDate(forecast.date)}
 							</td>
-							<td class="whitespace-nowrap px-6 py-4 text-sm text-gray-900">
+							<td class="px-6 py-4 text-sm whitespace-nowrap text-gray-900">
 								{forecast.temperatureC}
 							</td>
-							<td class="whitespace-nowrap px-6 py-4 text-sm text-gray-900">
+							<td class="px-6 py-4 text-sm whitespace-nowrap text-gray-900">
 								{forecast.temperatureF}
 							</td>
-							<td class="whitespace-nowrap px-6 py-4 text-sm text-gray-900">
+							<td class="px-6 py-4 text-sm whitespace-nowrap text-gray-900">
 								{forecast.summary || 'N/A'}
 							</td>
 						</tr>

@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="AspireAppSvelte.ApiService/AspireAppSvelte.ApiService.csproj" />
+  <Project Path="AspireAppSvelte.AppHost/AspireAppSvelte.AppHost.csproj" />
+  <Project Path="AspireAppSvelte.ServiceDefaults/AspireAppSvelte.ServiceDefaults.csproj" />
+</Solution>

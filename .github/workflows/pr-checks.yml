@@ -1,0 +1,69 @@
+name: PR Checks
+
+on:
+    pull_request:
+        branches: [main, develop]
+
+env:
+    DOTNET_VERSION: "9.0.x"
+    NODE_VERSION: "20.x"
+
+jobs:
+    pr-validation:
+        name: PR Validation
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Setup .NET
+              uses: actions/setup-dotnet@v4
+              with:
+                  dotnet-version: ${{ env.DOTNET_VERSION }}
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: ${{ env.NODE_VERSION }}
+                  cache: "npm"
+                  cache-dependency-path: src/AspireAppSvelte/AspireAppSvelte.Svelte/package-lock.json
+
+            # .NET checks
+            - name: Restore .NET dependencies
+              run: dotnet restore src/AspireAppSvelte/AspireAppSvelte.slnx
+
+            - name: Build .NET solution
+              run: dotnet build src/AspireAppSvelte/AspireAppSvelte.slnx --no-restore
+
+            - name: Run .NET tests
+              run: dotnet test src/AspireAppSvelte/AspireAppSvelte.slnx --no-build --verbosity normal
+
+            # Svelte checks
+            - name: Install Svelte dependencies
+              working-directory: src/AspireAppSvelte/AspireAppSvelte.Svelte
+              run: npm ci
+
+            - name: Run ESLint
+              working-directory: src/AspireAppSvelte/AspireAppSvelte.Svelte
+              run: npm run lint
+
+            - name: Run Svelte type checking
+              working-directory: src/AspireAppSvelte/AspireAppSvelte.Svelte
+              run: npm run check
+
+            - name: Build Svelte app
+              working-directory: src/AspireAppSvelte/AspireAppSvelte.Svelte
+              run: npm run build
+
+            - name: Comment PR
+              uses: actions/github-script@v7
+              if: github.event_name == 'pull_request'
+              with:
+                  script: |
+                      github.rest.issues.createComment({
+                        issue_number: context.issue.number,
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        body: '✅ All PR checks passed successfully! 🎉'
+                      })

@@ -1,0 +1,6 @@
+SELECT TOP (1000) [Id]
+      ,[Code]
+      ,[Name]
+      ,[Price]
+      ,[CreatedUTC]
+  FROM [EFCoreContains].[dbo].[Products]

@@ -1,0 +1,46 @@
+services:
+  sql-server:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    platform: linux/amd64
+    environment:
+      ACCEPT_EULA: "Y"
+      SA_PASSWORD: "YourStrong!Pass2024"
+      MSSQL_PID: "Developer"
+    ports:
+      - "1433:1433"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "/opt/mssql-tools18/bin/sqlcmd",
+          "-S",
+          "localhost",
+          "-U",
+          "sa",
+          "-P",
+          "YourStrong!Pass2024",
+          "-C",
+          "-Q",
+          "SELECT 1",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - deadlock-network
+
+  deadlock-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      sql-server:
+        condition: service_healthy
+    environment:
+      - ConnectionString=Server=sql-server,1433;Database=DeadlockTestDb;User Id=sa;Password=YourStrong!Pass2024;Encrypt=false;TrustServerCertificate=true;Connection Timeout=30;
+    networks:
+      - deadlock-network
+
+networks:
+  deadlock-network:
+    driver: bridge

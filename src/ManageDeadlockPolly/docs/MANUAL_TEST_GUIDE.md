@@ -35,7 +35,7 @@ sqlserver  | SQL Server is now ready for client connections.
 
 ```bash
 # Depuis la machine hote
-docker exec -it <container_sqlserver> /opt/mssql-tools18/bin/sqlcmd     -S localhost -U sa -P "YourStrong!Passw0rd"     -C -Q "SELECT @@VERSION"
+docker exec -it <container_sqlserver> /opt/mssql-tools18/bin/sqlcmd     -S localhost -U sa -P "$SA_PASSWORD"     -C -Q "SELECT @@VERSION"
 ```
 
 Resultat attendu : version SQL Server 2022.

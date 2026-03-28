@@ -33,8 +33,8 @@ builder.Services.AddDeadlockRetryStack(
     configureRetry: opt =>
     {
         opt.MaxRetries = 5;
-        opt.BaseDelayMs = 100;
-        opt.MaxDelayMs = 3000;
+        opt.InitialDelayMs = 100;
+        opt.MaxJitterMs = 3000;
         opt.OnRetry = (attempt, delay) =>
             logger.LogWarning(
                 "Deadlock detecte, tentative {Attempt} dans {Delay}ms",

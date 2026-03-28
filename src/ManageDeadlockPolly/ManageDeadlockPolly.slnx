@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/DeadlockPolly.Core/DeadlockPolly.Core.csproj" />
+    <Project Path="src/DeadlockPolly.Demo/DeadlockPolly.Demo.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/DeadlockPolly.Tests/DeadlockPolly.Tests.csproj" />
+  </Folder>
+</Solution>

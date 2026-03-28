@@ -48,10 +48,10 @@ La demo cree automatiquement la table `DeadlockTest` au demarrage.
 
 ```sql
 -- Verifier la table
-SELECT * FROM DeadlockTest;
+SELECT Id, Value, LastUpdated FROM dbo.DeadlockTest;
 
 -- Verifier les enregistrements de test
-SELECT Id, Value, LastUpdated, RetryCount FROM DeadlockTest ORDER BY Id;
+SELECT Id, Value, LastUpdated FROM dbo.DeadlockTest ORDER BY Id;
 ```
 
 ---
@@ -67,13 +67,13 @@ Ouvrir **deux fenetres de terminal** separees.
 BEGIN TRANSACTION;
 
 -- Verrouiller l'enregistrement 1
-UPDATE DeadlockTest SET Value = 'Session1-Row1' WHERE Id = 1;
+UPDATE dbo.DeadlockTest SET Value = Value + 1 WHERE Id = 1;
 
 -- Attendre avant de continuer (laisser Session 2 demarrer)
 WAITFOR DELAY '00:00:05';
 
 -- Tenter de verrouiller l'enregistrement 2 (deadlock si Session 2 l'a pris)
-UPDATE DeadlockTest SET Value = 'Session1-Row2' WHERE Id = 2;
+UPDATE dbo.DeadlockTest SET Value = Value + 1 WHERE Id = 2;
 
 COMMIT TRANSACTION;
 ```
@@ -83,10 +83,10 @@ COMMIT TRANSACTION;
 BEGIN TRANSACTION;
 
 -- Verrouiller l'enregistrement 2
-UPDATE DeadlockTest SET Value = 'Session2-Row2' WHERE Id = 2;
+UPDATE dbo.DeadlockTest SET Value = Value + 1 WHERE Id = 2;
 
 -- Tenter de verrouiller l'enregistrement 1 (deadlock avec Session 1)
-UPDATE DeadlockTest SET Value = 'Session2-Row1' WHERE Id = 1;
+UPDATE dbo.DeadlockTest SET Value = Value + 1 WHERE Id = 1;
 
 COMMIT TRANSACTION;
 ```

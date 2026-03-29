@@ -1,5 +1,7 @@
 using System.Data;
 using DeadlockPolly.Core.RetryPolicies;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace DeadlockPolly.Core.DataAccess;
 
@@ -12,13 +14,16 @@ public class TransactionalExecutor : ITransactionalExecutor
 {
     private readonly IDbConnectionProvider _connectionProvider;
     private readonly IDeadlockRetryPolicy _retryPolicy;
+    private readonly ILogger<TransactionalExecutor> _logger;
 
     public TransactionalExecutor(
         IDbConnectionProvider connectionProvider,
-        IDeadlockRetryPolicy retryPolicy)
+        IDeadlockRetryPolicy retryPolicy,
+        ILogger<TransactionalExecutor>? logger = null)
     {
         _connectionProvider = connectionProvider ?? throw new ArgumentNullException(nameof(connectionProvider));
         _retryPolicy = retryPolicy ?? throw new ArgumentNullException(nameof(retryPolicy));
+        _logger = logger ?? NullLogger<TransactionalExecutor>.Instance;
     }
 
     public async Task<T> ExecuteAsync<T>(
@@ -34,16 +39,16 @@ public class TransactionalExecutor : ITransactionalExecutor
                 var tx = await _connectionProvider.BeginTransactionAsync(conn, isolationLevel, cancellationToken);
                 try
                 {
-                    Console.WriteLine($"[TX] Transaction ouverte (Isolation: {isolationLevel})");
+                    _logger.LogDebug("Transaction ouverte (Isolation: {IsolationLevel})", isolationLevel);
                     var result = await action(conn, tx);
                     tx.Commit();
-                    Console.WriteLine("[TX] Transaction validée ✓");
+                    _logger.LogDebug("Transaction validée");
                     return result;
                 }
                 catch
                 {
                     tx.Rollback();
-                    Console.WriteLine("[TX] Transaction annulée");
+                    _logger.LogWarning("Transaction annulée suite à une erreur");
                     throw;
                 }
                 finally

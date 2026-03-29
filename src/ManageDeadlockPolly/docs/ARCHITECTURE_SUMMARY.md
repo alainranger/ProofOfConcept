@@ -54,14 +54,14 @@ namespace DeadlockPolly.Core.RetryPolicies;
 
 public class DeadlockRetryPolicyOptions
 {
-    public int MaxRetries { get; set; } = 3;
-    public int BaseDelayMs { get; set; } = 100;
-    public int MaxDelayMs { get; set; } = 2000;
+    public int MaxRetries { get; set; } = 5;
+    public int InitialDelayMs { get; set; } = 100;
+    public int MaxJitterMs { get; set; } = 50;
     public Action<int, TimeSpan>? OnRetry { get; set; }
 }
 ```
 
-**Calcul du delai :** jitter exponentiel entre `BaseDelayMs` et `MaxDelayMs`
+**Calcul du delai :** jitter exponentiel basé sur `InitialDelayMs` avec variation aléatoire jusqu'à `MaxJitterMs`
 
 ### 2. PollyDeadlockRetryPolicy
 
@@ -94,8 +94,8 @@ services.AddDeadlockRetryStack(
     configureRetry: opt =>
     {
         opt.MaxRetries = 5;
-        opt.BaseDelayMs = 100;
-        opt.MaxDelayMs = 2000;
+        opt.InitialDelayMs = 100;
+        opt.MaxJitterMs = 50;
         opt.OnRetry = (attempt, delay) =>
             Console.WriteLine($"[RETRY {attempt}] dans {delay.TotalMilliseconds:F0}ms");
     });

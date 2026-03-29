@@ -67,7 +67,7 @@ Assert.Equal(42, result);
 
 ### Tests d'Integration
 
-- [ ] Tests d'integration configurent `BaseDelayMs = 10` (delais courts)
+- [ ] Tests d'integration configurent `InitialDelayMs = 10` (delais courts)
 - [ ] Base de tests separee ou transactions rollback en fin de test
 - [ ] Test de simulation deadlock present (optionnel)
 
@@ -96,8 +96,8 @@ Assert.Equal(42, result);
 | Parametre | Developpement | Production |
 |-----------|--------------|------------|
 | `MaxRetries` | 2 | 3 a 5 |
-| `BaseDelayMs` | 50 | 100 |
-| `MaxDelayMs` | 500 | 2000 a 5000 |
+| `InitialDelayMs` | 50 | 100 |
+| `MaxJitterMs` | 500 | 2000 a 5000 |
 
 ---
 

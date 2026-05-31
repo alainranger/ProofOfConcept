@@ -1,359 +1,205 @@
-# Guide d'Intégration - Architecture Polly Réutilisable
+# Guide d'Integration
 
-## Vue d'ensemble
-
-L'architecture de retry deadlock a été refactorisée pour une **réutilisabilité maximale** dans des projets applicatifs réels (API, Microservices, Workers, etc).
-
-### Couches de l'architecture
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  Couche Application (API Controllers, Services, Workers)   │
-│         └─ Injecte ITransactionalExecutor                   │
-├─────────────────────────────────────────────────────────────┤
-│  Couche Abstraction Transactionnelle                        │
-│         ├─ ITransactionalExecutor (orchestration)           │
-│         ├─ IDbConnectionProvider (connexions)               │
-│         └─ IDeadlockRetryPolicy (stratégies)                │
-├─────────────────────────────────────────────────────────────┤
-│  Couche Implémentation                                       │
-│         ├─ TransactionalExecutor (impl générique)           │
-│         ├─ SqlServerConnectionProvider (SQL Server)         │
-│         └─ PollyDeadlockRetryPolicy (Polly)                 │
-├─────────────────────────────────────────────────────────────┤
-│  Couche Infrastructure                                       │
-│         └─ Microsoft.Data.SqlClient + Polly                 │
-└─────────────────────────────────────────────────────────────┘
-```
-
-**Avantage:** Chaque couche est testable, remplaçable et découplée.
+Integrer `DeadlockPolly.Core` dans votre projet .NET existant.
 
 ---
 
-## Utilisation dans un ASP.NET Core API
+## 1. Ajouter la Reference
 
-### 1. Configuration au démarrage (Program.cs)
+### Via fichier .csproj
+
+```xml
+<ItemGroup>
+  <ProjectReference Include="path/to/DeadlockPolly.Core/DeadlockPolly.Core.csproj" />
+</ItemGroup>
+```
+
+### Via NuGet (si package publie)
+
+```bash
+dotnet add package DeadlockPolly.Core
+```
+
+---
+
+## 2. Enregistrer les Services
 
 ```csharp
-using ManageDeadlockPolly.Extensions;
-using Microsoft.Extensions.DependencyInjection;
+using DeadlockPolly.Core.Extensions;
 
+// Dans Program.cs ou Startup.cs
+builder.Services.AddDeadlockRetryStack(
+    connectionString: builder.Configuration.GetConnectionString("DefaultConnection")!,
+    configureRetry: opt =>
+    {
+        opt.MaxRetries = 5;
+        opt.InitialDelayMs = 100;
+        opt.MaxJitterMs = 3000;
+        opt.OnRetry = (attempt, delay) =>
+            logger.LogWarning(
+                "Deadlock detecte, tentative {Attempt} dans {Delay}ms",
+                attempt,
+                delay.TotalMilliseconds);
+    });
+```
+
+---
+
+## 3. Injecter ITransactionalExecutor
+
+### Dans un Repository
+
+```csharp
+using DeadlockPolly.Core.DataAccess;
+
+public class OrderRepository(ITransactionalExecutor executor)
+{
+    private const string InsertSql = @"
+        INSERT INTO Orders (CustomerId, Total, CreatedAt)
+        OUTPUT INSERTED.Id
+        VALUES (@CustomerId, @Total, @CreatedAt)";
+
+    public async Task<int> CreateOrderAsync(Order order)
+    {
+        return await executor.ExecuteAsync(async (conn, tx) =>
+        {
+            return await conn.ExecuteScalarAsync<int>(InsertSql, order, tx);
+        });
+    }
+}
+```
+
+### Dans un Service
+
+```csharp
+using DeadlockPolly.Core.DataAccess;
+
+public class InventoryService(ITransactionalExecutor executor)
+{
+    public async Task TransferStockAsync(int fromId, int toId, int quantity)
+    {
+        await executor.ExecuteAsync(async (conn, tx) =>
+        {
+            await conn.ExecuteAsync(
+                "UPDATE Stock SET Quantity -= @qty WHERE ProductId = @id",
+                new { qty = quantity, id = fromId }, tx);
+
+            await conn.ExecuteAsync(
+                "UPDATE Stock SET Quantity += @qty WHERE ProductId = @id",
+                new { qty = quantity, id = toId }, tx);
+
+            return true;
+        });
+    }
+}
+```
+
+---
+
+## 4. Integration ASP.NET Core
+
+```csharp
+// Program.cs
 var builder = WebApplication.CreateBuilder(args);
 
-// Configuration simple
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
-    ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
+builder.Services.AddDeadlockRetryStack(
+    connectionString: builder.Configuration.GetConnectionString("Sql")!,
+    configureRetry: opt => opt.MaxRetries = 3);
 
-builder.Services.AddDeadlockRetryStack(connectionString, options =>
-{
-    options.MaxRetries = 5;
-    options.InitialDelayMs = 100;
-    options.MaxJitterMs = 50;
-    options.OnRetry = (retryCount, delay) =>
-    {
-        Console.WriteLine($"[RETRY {retryCount}] Deadlock, retry in {delay.TotalMilliseconds:F0}ms");
-    };
-});
-
-builder.Services.AddScoped<IOrderRepository, OrderRepository>();
+builder.Services.AddScoped<OrderRepository>();
 
 var app = builder.Build();
-app.MapControllers();
+
+app.MapPost("/orders", async (OrderRepository repo, Order order) =>
+{
+    var id = await repo.CreateOrderAsync(order);
+    return Results.Created($"/orders/{id}", new { Id = id });
+});
+
 app.Run();
 ```
 
-### 2. Utilisation dans un Repository ou Service
-
-```csharp
-using ManageDeadlockPolly.DataAccess;
-using Dapper;
-
-public interface IOrderRepository
-{
-    Task<Order> CreateOrderAsync(CreateOrderRequest request);
-    Task UpdateOrderAsync(int orderId, UpdateOrderRequest request);
-}
-
-public class OrderRepository : IOrderRepository
-{
-    private readonly ITransactionalExecutor _executor;
-
-    public OrderRepository(ITransactionalExecutor executor)
-    {
-        _executor = executor;
-    }
-
-    public async Task<Order> CreateOrderAsync(CreateOrderRequest request)
-    {
-        return await _executor.ExecuteAsync(async (conn, tx) =>
-        {
-            // Logique métier : créer la commande + mettre à jour l'inventaire
-            var orderId = await conn.ExecuteScalarAsync<int>(
-                "INSERT INTO Orders (CustomerId, Total) VALUES (@CustomerId, @Total); SELECT SCOPE_IDENTITY();",
-                new { request.CustomerId, request.Total },
-                transaction: tx);
-
-            // Simuler une logique pouvant générer un deadlock
-            await Task.Delay(100);
-
-            foreach (var line in request.Lines)
-            {
-                await conn.ExecuteAsync(
-                    "UPDATE Inventory SET Quantity = Quantity - @Qty WHERE ProductId = @ProductId",
-                    new { Qty = line.Quantity, line.ProductId },
-                    transaction: tx);
-            }
-
-            return new Order { Id = orderId, CustomerId = request.CustomerId, Total = request.Total };
-        });
-    }
-
-    public async Task UpdateOrderAsync(int orderId, UpdateOrderRequest request)
-    {
-        await _executor.ExecuteAsync(async (conn, tx) =>
-        {
-            await conn.ExecuteAsync(
-                "UPDATE Orders SET Status = @Status WHERE Id = @Id",
-                new { Status = request.Status, Id = orderId },
-                transaction: tx);
-
-            // Polly retry automatique en cas de deadlock
-        });
-    }
-}
-```
-
-### 3. Utilisation dans un contrôleur
-
-```csharp
-[ApiController]
-[Route("api/[controller]")]
-public class OrdersController : ControllerBase
-{
-    private readonly IOrderRepository _repository;
-
-    public OrdersController(IOrderRepository repository)
-    {
-        _repository = repository;
-    }
-
-    [HttpPost]
-    public async Task<ActionResult<Order>> CreateOrder([FromBody] CreateOrderRequest request)
-    {
-        try
-        {
-            var order = await _repository.CreateOrderAsync(request);
-            return CreatedAtAction(nameof(CreateOrder), new { id = order.Id }, order);
-        }
-        catch (Exception ex)
-        {
-            // ITransactionalExecutor gère le retry, vous ne devriez pas arriver ici pour un deadlock
-            return StatusCode(500, $"Error: {ex.Message}");
-        }
-    }
-}
-```
-
 ---
 
-## Utilisation dans un Background Worker / Service
+## 5. Integration Worker Service
 
 ```csharp
-using ManageDeadlockPolly.DataAccess;
-using ManageDeadlockPolly.Extensions;
-
-class Program
+// Worker.cs
+public class StockSyncWorker(ITransactionalExecutor executor, ILogger<StockSyncWorker> logger)
+    : BackgroundService
 {
-    static async Task Main(string[] args)
-    {
-        var host = Host.CreateDefaultBuilder(args)
-            .ConfigureServices((context, services) =>
-            {
-                var connectionString = context.Configuration.GetConnectionString("DefaultConnection")
-                    ?? throw new InvalidOperationException("Connection string not found");
-
-                // Même configuration que dans ASP.NET Core
-                services.AddDeadlockRetryStack(connectionString, options =>
-                {
-                    options.MaxRetries = 3;
-                    options.OnRetry = (retryCount, delay) =>
-                        Console.WriteLine($"Worker: Retry {retryCount} in {delay.TotalMilliseconds}ms");
-                });
-
-                services.AddScoped<ISyncWorker, SyncWorker>();
-                services.AddHostedService<BackgroundSyncService>();
-            })
-            .Build();
-
-        await host.RunAsync();
-    }
-}
-
-public class BackgroundSyncService : BackgroundService
-{
-    private readonly IServiceProvider _serviceProvider;
-
-    public BackgroundSyncService(IServiceProvider serviceProvider)
-    {
-        _serviceProvider = serviceProvider;
-    }
-
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         while (!stoppingToken.IsCancellationRequested)
         {
-            using var scope = _serviceProvider.CreateScope();
-            var worker = scope.ServiceProvider.GetRequiredService<ISyncWorker>();
-            
-            try
+            await executor.ExecuteAsync(async (conn, tx) =>
             {
-                await worker.SyncDataAsync();
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Sync failed after retries: {ex.Message}");
-            }
+                await conn.ExecuteAsync("UPDATE Stock SET LastSync = GETUTCDATE()", tx);
+                return 0;
+            });
 
             await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
         }
     }
 }
-
-public class SyncWorker : ISyncWorker
-{
-    private readonly ITransactionalExecutor _executor;
-
-    public SyncWorker(ITransactionalExecutor executor)
-    {
-        _executor = executor;
-    }
-
-    public async Task SyncDataAsync()
-    {
-        await _executor.ExecuteAsync(async (conn, tx) =>
-        {
-            // Logique de synchronisation
-            var records = await conn.QueryAsync(
-                "SELECT * FROM SyncQueue WHERE Status = 'Pending'",
-                transaction: tx);
-
-            foreach (var record in records)
-            {
-                // Traitement qui peut causer des deadlocks
-                await conn.ExecuteAsync(
-                    "UPDATE SyncQueue SET Status = 'Processed' WHERE Id = @Id",
-                    new { Id = record.Id },
-                    transaction: tx);
-            }
-        });
-    }
-}
 ```
 
 ---
 
-## Utilisation avec Tests Unitaires
+## 6. Configuration Avancee
 
-### Créer un Mock de ITransactionalExecutor
+### Retry Exponentiel avec Jitter
 
 ```csharp
-using Moq;
-using ManageDeadlockPolly.DataAccess;
-using Xunit;
-
-public class OrderRepositoryTests
-{
-    [Fact]
-    public async Task CreateOrder_ShouldCallExecutorWithCorrectAction()
-    {
-        // Arrange
-        var mockExecutor = new Mock<ITransactionalExecutor>();
-        
-        // Simuler le comportement de l'executor
-        mockExecutor
-            .Setup(e => e.ExecuteAsync(It.IsAny<Func<IDbConnection, IDbTransaction, Task<Order>>>(), It.IsAny<IsolationLevel>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new Order { Id = 1, CustomerId = 123, Total = 99.99m });
-
-        var repository = new OrderRepository(mockExecutor.Object);
-
-        // Act
-        var result = await repository.CreateOrderAsync(new CreateOrderRequest { CustomerId = 123, Total = 99.99m });
-
-        // Assert
-        Assert.Equal(1, result.Id);
-        mockExecutor.Verify(e => e.ExecuteAsync(It.IsAny<Func<IDbConnection, IDbTransaction, Task<Order>>>(), It.IsAny<IsolationLevel>(), It.IsAny<CancellationToken>()), Times.Once);
-    }
-}
+opt.MaxRetries = 5;
+opt.BaseDelayMs = 50;    // 1er retry ~50-150ms
+opt.MaxDelayMs = 5000;   // Plafond a 5 secondes
 ```
 
----
-
-## Configuration Avancée
-
-### Option 1: Enregistrer une implémentation custom de IDeadlockRetryPolicy
+### Logging Detaille
 
 ```csharp
-services.AddSingleton<IDeadlockRetryPolicy>(provider =>
+opt.OnRetry = (attempt, delay) =>
 {
-    var logger = provider.GetRequiredService<ILogger<MyCustomRetryPolicy>>();
-    return new MyCustomRetryPolicy(logger);
-});
+    logger.LogWarning(
+        "[DEADLOCK] Tentative {Attempt}/{MaxRetries} - Attente {Delay}ms",
+        attempt,
+        opt.MaxRetries,
+        (int)delay.TotalMilliseconds);
+};
 ```
 
-### Option 2: Créer un fournisseur de connexion personnalisé
+### Test avec Retry Rapide
 
 ```csharp
-public class PostgreSqlConnectionProvider : IDbConnectionProvider
-{
-    private readonly string _connectionString;
-
-    public PostgreSqlConnectionProvider(string connectionString)
+// Dans les tests d'integration
+services.AddDeadlockRetryStack(
+    connectionString: testConnectionString,
+    configureRetry: opt =>
     {
-        _connectionString = connectionString;
-    }
-
-    public async Task<IDbConnection> CreateAndOpenAsync(CancellationToken cancellationToken = default)
-    {
-        var connection = new NpgsqlConnection(_connectionString);
-        await connection.OpenAsync(cancellationToken);
-        return connection;
-    }
-
-    public async Task<IDbTransaction> BeginTransactionAsync(
-        IDbConnection connection,
-        IsolationLevel isolationLevel = IsolationLevel.ReadCommitted,
-        CancellationToken cancellationToken = default)
-    {
-        // Implémentation PostgreSQL
-        return (await connection.BeginTransactionAsync(isolationLevel, cancellationToken))!;
-    }
-}
-
-// Enregistrement
-services.AddScoped<IDbConnectionProvider>(
-    _ => new PostgreSqlConnectionProvider(connectionString));
+        opt.MaxRetries = 2;
+        opt.BaseDelayMs = 10;   // Delais tres courts pour les tests
+        opt.MaxDelayMs = 50;
+    });
 ```
 
 ---
 
-## Avantages de cette architecture
+## 7. Namespaces de Reference
 
-✅ **Découplage**: Chaque composant a un rôle bien défini  
-✅ **Testabilité**: Toutes les interfaces sont mockables  
-✅ **Réutilisabilité**: Utilisable dans n'importe quel projet .NET  
-✅ **Extensibilité**: Easy to swap implementations (Polly → autre, SQL → Postgres, etc)  
-✅ **Configuration**: Options validées et flexibles  
-✅ **Monitoring**: Callbacks pour logging/metrics  
+```csharp
+using DeadlockPolly.Core.DataAccess;       // ITransactionalExecutor, IDbConnectionProvider
+using DeadlockPolly.Core.Extensions;       // AddDeadlockRetryStack
+using DeadlockPolly.Core.RetryPolicies;   // IDeadlockRetryPolicy, DeadlockRetryPolicyOptions
+using DeadlockPolly.Core.Repositories;   // DeadlockTestRecord, DeadlockTestRepository (demo)
+```
 
 ---
 
-## Fichiers d'implémentation
+## 8. Checklist d'Integration
 
-- `RetryPolicies/IDeadlockRetryPolicy.cs` - Interface de stratégie retry
-- `RetryPolicies/PollyDeadlockRetryPolicy.cs` - Implémentation Polly
-- `RetryPolicies/DeadlockRetryPolicyOptions.cs` - Configuration options
-- `DataAccess/IDbConnectionProvider.cs` - Interface fournisseur de connexion
-- `DataAccess/SqlServerConnectionProvider.cs` - Implémentation SQL Server
-- `DataAccess/ITransactionalExecutor.cs` - Interface orchestration transactionnelle
-- `DataAccess/TransactionalExecutor.cs` - Implémentation générique
-- `Extensions/ServiceCollectionExtensions.cs` - Extensions DI
+Voir [INTEGRATION_CHECKLIST.md](./INTEGRATION_CHECKLIST.md) pour la liste complete.
+
+---
+
+**Voir aussi -> [MANUAL_TEST_GUIDE.md](./MANUAL_TEST_GUIDE.md)**

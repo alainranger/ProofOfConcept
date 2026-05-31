@@ -1,6 +1,6 @@
-# 🎉 Généré! Projet Polly + Dapper - Gestion Deadlocks
+# Projet Polly + Dapper - Gestion Deadlocks
 
-Ton projet complet est **prêt à lancer** dans:
+Solution multi-projet **production-ready** dans :
 
 ```
 /Users/alainranger/sources/ProofOfConcept/src/ManageDeadlockPolly/
@@ -8,248 +8,142 @@ Ton projet complet est **prêt à lancer** dans:
 
 ---
 
-## 📦 Ce qui a été créé
+## Structure du Projet
 
-### ✅ 5 fichiers de code (.cs)
-
-- `DeadlockRetryService.cs` - **Core service** (Polly retry + transaction management)
-- `Program.cs` - Harness de test complet avec 2 scénarios
-- `Examples/AdvancedExamples.cs` - Patterns avancés (Circuit Breaker, Telemetry, etc.)
-- `Examples/AspNetCoreExample.cs` - Intégration ASP.NET Core avec DI + Controllers
-- Tous importables dans ton projet existant
-
-### ✅ 5 guides de documentation (.md)
-
-- `docs/QUICKSTART.md` - **Débuter en 3 min** ⭐
-- `README.md` - Doc complète + architecture
-- `docs/INTEGRATION_CHECKLIST.md` - Comment ajouter à ton projet
-- `docs/MANUAL_TEST_GUIDE.md` - Reproduire deadlock manuellement
-- `docs/INDEX.md` - Navigation globale
-
-### ✅ Infrastructure Docker
-
-- `docker-compose.yml` - SQL Server + App orchestration
-- `Dockerfile` - Multi-stage .NET 8 build
-- `init.sql` - Création DB + tables test
-
-### ✅ Outils de développement
-
-- `.vscode/tasks.json` - Tâches VS Code (docker, dotnet, logs, etc.)
-- `scripts/setup.sh` - Setup initial automatique (optionnel)
-- `scripts/dev.sh` - Utilitaires shell avancés (optionnel)
+```
+ManageDeadlockPolly.slnx               <- solution (3 projets)
+|
++-- src/
+|   +-- DeadlockPolly.Core/            Bibliotheque reutilisable (.NET 9)
+|   |   +-- RetryPolicies/             IDeadlockRetryPolicy, PollyDeadlockRetryPolicy, Options
+|   |   +-- DataAccess/                ITransactionalExecutor, TransactionalExecutor, ...
+|   |   +-- Extensions/                ServiceCollectionExtensions (AddDeadlockRetryStack)
+|   |   +-- Repositories/             DeadlockTestRecord, DeadlockTestRepository
+|   |
+|   +-- DeadlockPolly.Demo/            Application console de demonstration (.NET 9)
+|       +-- Program.cs
+|
++-- tests/
+|   +-- DeadlockPolly.Tests/           Tests xUnit - 29 tests PASS (.NET 9)
+|       +-- RetryPolicies/
+|       +-- DataAccess/
+|       +-- Helpers/
+|
++-- docs/
++-- Examples/                          Patterns avances (API, Worker, Circuit Breaker)
++-- Dockerfile                         Multi-stage build .NET 9
++-- docker-compose.yml                 SQL Server 2022 + App
+```
 
 ---
 
-## 🚀 Lancer Maintenant (30 secondes)
+## Lancer la Demo (30 secondes)
 
 ```bash
 cd /Users/alainranger/sources/ProofOfConcept/src/ManageDeadlockPolly
-
-# Avec docker-compose directement
 docker-compose up --build
 ```
 
-**Ou depuis VS Code:**
+**Ou depuis VS Code :** `Cmd+Shift+P` -> "Tasks: Run Task" -> "Docker: Demarrer"
 
-1. Ouvrir palette de commandes: `Cmd/Ctrl + Shift + P`
-2. Taper: "Tasks: Run Task"
-3. Sélectionner: "🐳 Docker: Démarrer (build + run)"
-
-**⏳ Attendez ~20s**... puis la démo s'exécute:
+Attendez ~20 s... puis la demo s'execute :
 
 ```
-═══════════════════════════════════════════════════════════
-  Démo Polly + Dapper - Gestion des Deadlocks
-═══════════════════════════════════════════════════════════
+================================================================
+  Demo Polly + Dapper - Gestion des Deadlocks
+================================================================
 
-✓ Connexion à SQL Server établie
+Attente de SQL Server...
+Connexion a SQL Server etablie
 
-Test 1: Opération normale
-[TX] Transaction validée ✓
-✓ 2 enregistrements mis à jour
+1. Test: operation simple
+[TX] Transaction ouverte (Isolation: ReadCommitted)
+[TX] Transaction validee
+Succes: 2 enregistrements mis a jour
 
-Test 2: Avec deadlock concurrent
-[RETRY 1] Deadlock détecté, retry dans 156ms
-[TX] Transaction validée ✓
-✓ Deux opérations terminées avec succès
+2. Test: concurrence avec deadlock
+[RETRY 1] Deadlock detecte, retry dans 111ms
+[TX] Transaction validee
+Succes: les deux operations se sont terminees apres retry
 ```
 
 ---
 
-## 📊 Structure du Projet
-
-```
-ManageDeadlockPolly/
-│
-├── 💻 Code (.cs)
-│  ├── DeadlockRetryService.cs     ⭐ Core service
-│  ├── Program.cs                  Tests harness
-│  ├── Examples/AdvancedExamples.cs   Patterns avancés
-│  └── Examples/AspNetCoreExample.cs  Intégration ASP.NET Core
-│
-├── 📚 Documentation (.md)
-│  ├── docs/QUICKSTART.md          ⭐ Début ici
-│  ├── README.md                   Complet
-│  ├── docs/INTEGRATION_CHECKLIST.md Pour ton projet
-│  ├── docs/MANUAL_TEST_GUIDE.md   Tests manuels
-│  └── docs/INDEX.md               Navigation
-│
-├── 🐳 Docker
-│  ├── docker-compose.yml
-│  ├── Dockerfile
-│  ├── init.sql
-│  └── .dockerignore
-│
-├── 🛠️ Outils
-│  ├── .vscode/tasks.json          VS Code tasks 🎯
-│  ├── scripts/setup.sh            Setup automatique (optionnel)
-│  ├── scripts/dev.sh              Utilitaires shell (optionnel)
-│  └── ManageDeadlockPolly.csproj  .NET 8 project
-│
-└── 📄 Config
-   ├── .gitignore
-   └── .dockerignore
-```
-
----
-
-## ⚡ Commandes Clés
-
-**Depuis VS Code (recommandé):**
-
-- Palette: `Cmd/Ctrl + Shift + P` → "Tasks: Run Task"
-- Voir toutes les tasks disponibles avec 🐳 🔧 📦 🔄
-
-**En terminal:**
+## Lancer les Tests
 
 ```bash
-docker-compose up --build              # Lancer
-docker-compose down                    # Arrêter
-docker-compose logs -f                 # Logs
-docker-compose down -v                 # Clean
+dotnet test ManageDeadlockPolly.slnx
+```
 
-dotnet build                           # Build local
-dotnet run                             # Run local
+Resultat attendu : **29 tests reussis** en < 1 seconde (aucune dependance SQL).
+
+---
+
+## Commandes Cles
+
+```bash
+# Docker
+docker-compose up --build             # Demarrer la demo
+docker-compose down                   # Arreter
+docker-compose down -v                # Arreter + supprimer volumes
+docker-compose logs -f deadlock-app   # Logs app seulement
+
+# .NET
+dotnet build ManageDeadlockPolly.slnx    # Build solution
+dotnet test  ManageDeadlockPolly.slnx    # Tests unitaires (29/29)
+dotnet run --project src/DeadlockPolly.Demo  # Run local (necessite SQL)
 ```
 
 ---
 
-## 🎯 Prochaines Étapes
-
-### Impatient? (3 min)
-
-1. `docker-compose up` → observe les logs
-2. Termine après ~30s
-3. ✅ Tu as vu un deadlock + retry!
-
-### Veux comprendre?
-
-1. Lire [QUICKSTART.md](./QUICKSTART.md)
-2. Lire [README.md](../README.md) (architecture)
-3. Voir [Program.cs](../Program.cs) (implémentation)
-
-### Veux ajouter à ton projet?
-
-1. Copier `DeadlockRetryService.cs`
-2. Lire [INTEGRATION_CHECKLIST.md](./INTEGRATION_CHECKLIST.md)
-3. Suivre les 7 étapes
-
-### Veux tester manuellement?
-
-1. `docker-compose up -d` (run en background)
-2. Lire [MANUAL_TEST_GUIDE.md](./MANUAL_TEST_GUIDE.md)
-3. Ouvrir 2 terminals SQL pour reproduire
-
----
-
-## 🔑 Points Importants
-
-✅ **Production-ready**: Code testé, logging, error handling  
-✅ **Zéro config**: Juste `docker-compose up --build` c'est bon  
-✅ **Copy-paste ready**: Copier DeadlockRetryService.cs  
-✅ **Bien documenté**: 5 guides + exemples  
-✅ **Pattern avancés**: Circuit Breaker, Telemetry, etc.  
-✅ **Extensible**: Voir Examples/AdvancedExamples.cs  
-
----
-
-## 🆘 Troubleshooting Rapide
-
-| Problème | Solution |
-|----------|----------|
-| `Port 1433 already in use` | `lsof -i :1433` → `kill -9 <PID>` |
-| `Docker not running` | Ouvrir Docker Desktop |
-| `Conteneur crash` | `docker-compose logs` → voir erreur |
-| `SQL timeout` | Attendre 30s au lieu de 15s |
-| `Want to reset` | `docker-compose down -v` → `docker-compose up --build` |
-
----
-
-## 📞 Need Help?
-
-- 📖 Voir `docs/INDEX.md` pour navigation complète
-- 🚀 Voir `docs/QUICKSTART.md` pour démarrage rapide
-- 📚 Voir `README.md` pour architecture
-- 🧪 Voir `docs/MANUAL_TEST_GUIDE.md` pour tests
-- ☑️ Voir `docs/INTEGRATION_CHECKLIST.md` pour ajouter à ton code
-
----
-
-## 🎓 Ce que tu vas apprendre
-
-Via ce projet tu vas:
-
-1. ✅ Comprendre comment Polly retry fonctionne
-2. ✅ Voir deadlock SQL Server en action
-3. ✅ Impl dapper avec transactions
-4. ✅ Exponential backoff + jitter
-5. ✅ Docker & Docker Compose
-6. ✅ Async/await patterns
-7. ✅ Dependency Injection (ASP.NET Core)
-
----
-
-## 🎉 Bon à Savoir
+## Utilisation de la Bibliotheque Core
 
 ```csharp
-// Ce projet démontre:
+// 1. Enregistrement DI (une seule ligne)
+services.AddDeadlockRetryStack(
+    connectionString: "Server=...;",
+    configureRetry: opt =>
+    {
+        opt.MaxRetries = 5;
+        opt.OnRetry = (n, delay) => logger.LogWarning("Deadlock retry #{n}", n);
+    });
 
-// 1. Polly Retry sur error 1205
-await policy.ExecuteAsync(async () => 
+// 2. Injection dans un repository
+public class OrderRepository(ITransactionalExecutor executor)
 {
-    // Transaction rejouée automatiquement
-});
-
-// 2. Dapper + Transaction
-await conn.ExecuteAsync("UPDATE ...", tx);
-
-// 3. Exponential backoff + jitter
-// 100ms, 200ms, 400ms, 800ms + jitter 0-50ms
-
-// 4. Production patterns
-// Logging, error handling, isolation levels
+    public Task<Order> CreateAsync(Order order) =>
+        executor.ExecuteAsync(async (conn, tx) =>
+        {
+            var id = await conn.ExecuteScalarAsync<int>(InsertSql, order, tx);
+            return order with { Id = id };
+        });
+}
 ```
 
 ---
 
-## 📈 Performance Attendue
+## Prochaines Etapes
 
-- **Pas de deadlock**: 50-100ms par opération ✅
-- **Deadlock + retry x2**: 300-500ms
-- **Deadlock + retry x5**: 1-2s
-- **Verdict**: Bien meilleur qu'un crash applicatif! 🚀
-
----
-
-## 🚀 Ready to Go
-
-```bash
-cd /Users/alainranger/sources/ProofOfConcept/src/ManageDeadlockPolly
-docker-compose up --build
-```
-
-**Tu devrais voir la démo dans ~20 secondes! 🎉**
+| Objectif                       | Ou aller                                           |
+|--------------------------------|----------------------------------------------------|
+| Voir la demo tourner           | `docker-compose up --build`                        |
+| Comprendre l'architecture      | [ARCHITECTURE_SUMMARY.md](./ARCHITECTURE_SUMMARY.md) |
+| Integrer dans ton projet       | [INTEGRATION_GUIDE.md](./INTEGRATION_GUIDE.md)    |
+| Demarrer en 3 min              | [QUICKSTART.md](./QUICKSTART.md)                  |
+| Navigation globale             | [INDEX.md](./INDEX.md)                            |
 
 ---
 
-**Next → [QUICKSTART.md](./QUICKSTART.md)**
+## Troubleshooting Rapide
+
+| Probleme                    | Solution                                      |
+|-----------------------------|-----------------------------------------------|
+| `Port 1433 already in use`  | `lsof -i :1433` puis `kill -9 <PID>`         |
+| `Docker not running`        | Ouvrir Docker Desktop                         |
+| `Conteneur crash`           | `docker-compose logs` -> voir erreur          |
+| `SQL timeout`               | Attendre 30 s, le healthcheck doit passer     |
+| `Reset complet`             | `docker-compose down -v` puis `up --build`    |
+
+---
+
+**Next -> [QUICKSTART.md](./QUICKSTART.md)**

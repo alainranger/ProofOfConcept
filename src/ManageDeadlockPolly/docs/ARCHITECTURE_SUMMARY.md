@@ -1,158 +1,166 @@
-# Architecture Réutilisable - Résumé
+# Architecture - Polly + Dapper Deadlock Retry
 
-## ✅ Requirement 2: Architecture Polly Réutilisable
+## Vue d'Ensemble
 
-La logique Polly a été **complètement refactorisée** dans une architecture modulaire et réutilisable pour des projets applicatifs réels.
+Solution en 3 projets .NET 9 pour gerer les deadlocks SQL Server avec retry automatique.
 
----
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    DeadlockPolly.Demo                       │
+│                    (Console App)                            │
+│  Program.cs  ──>  ITransactionalExecutor                    │
+└────────────────────────┬────────────────────────────────────┘
+                         │ depends on
+┌────────────────────────▼────────────────────────────────────┐
+│                    DeadlockPolly.Core                       │
+│                    (Class Library)                          │
+│                                                             │
+│  Extensions/                                                │
+│    AddDeadlockRetryStack()     ── enregistrement DI one-shot│
+│                                                             │
+│  DataAccess/                                                │
+│    ITransactionalExecutor                                   │
+│    TransactionalExecutor  ──> IDeadlockRetryPolicy          │
+│    IDbConnectionProvider                                    │
+│    SqlServerConnectionProvider                              │
+│                                                             │
+│  RetryPolicies/                                             │
+│    IDeadlockRetryPolicy                                     │
+│    PollyDeadlockRetryPolicy   ── Polly ResiliencePipeline   │
+│    DeadlockRetryPolicyOptions ── config: MaxRetries, delays │
+│                                                             │
+│  Repositories/                                              │
+│    DeadlockTestRepository  ──> ITransactionalExecutor       │
+│    DeadlockTestRecord                                       │
+└─────────────────────────────────────────────────────────────┘
 
-## Structure de l'Architecture
-
-### 1️⃣ Couche Retry Policy (`RetryPolicies/`)
-
-- `IDeadlockRetryPolicy.cs` - Interface abstraite pour stratégies de retry
-- `PollyDeadlockRetryPolicy.cs` - Implémentation Polly
-- `DeadlockRetryPolicyOptions.cs` - Configuration validée et flexible
-
-**Avantage:** On peut remplacer Polly par Resilience.Core, Transient Fault Handling, etc.
-
-### 2️⃣ Couche Accès aux Données (`DataAccess/`)
-
-- `IDbConnectionProvider.cs` - Abstraction pour créer/gérer les connexions
-- `SqlServerConnectionProvider.cs` - Implémentation SQL Server
-- `ITransactionalExecutor.cs` - Interface pour exécuter des transactions
-- `TransactionalExecutor.cs` - Implémentation générique découplée
-
-**Avantage:** Support facile de PostgreSQL, MySQL, etc. via nouvelles implémentations de `IDbConnectionProvider`
-
-### 3️⃣ Couche d'Intégration (`Extensions/`)
-
-- `ServiceCollectionExtensions.cs` - Enregistrement DI fluide
-
-```csharp
-// Configuration simple (3 lignes)
-services.AddDeadlockRetryStack(connectionString, options =>
-{
-    options.MaxRetries = 5;
-});
+┌─────────────────────────────────────────────────────────────┐
+│                    DeadlockPolly.Tests                      │
+│                    (xUnit - 29 tests)                       │
+│  Tests RetryPolicies, DataAccess (Moq), Helpers             │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-### 4️⃣ Backward Compatibility
-
-- `DeadlockRetryService.cs` **[Deprecated]** - Conservé pour compatibilité, utilise la nouvelle architecture en interne
-
 ---
 
-## Utilisation dans Différents Contextes
+## Composants Detailles
 
-### ASP.NET Core API
+### 1. DeadlockRetryPolicyOptions
+
+Options de configuration de la politique de retry.
 
 ```csharp
-// Program.cs
-services.AddDeadlockRetryStack(connectionString);
-services.AddScoped<IOrderRepository, OrderRepository>();
+namespace DeadlockPolly.Core.RetryPolicies;
 
-// OrderRepository.cs
-public class OrderRepository : IOrderRepository
+public class DeadlockRetryPolicyOptions
 {
-    private readonly ITransactionalExecutor _executor;
-    
-    public OrderRepository(ITransactionalExecutor executor) => _executor = executor;
-    
-    public async Task<Order> CreateOrderAsync(CreateOrderRequest request)
-    {
-        return await _executor.ExecuteAsync(async (conn, tx) =>
-        {
-            // Logique métier
-        });
-    }
+    public int MaxRetries { get; set; } = 5;
+    public int InitialDelayMs { get; set; } = 100;
+    public int MaxJitterMs { get; set; } = 50;
+    public Action<int, TimeSpan>? OnRetry { get; set; }
 }
 ```
 
-### Background Worker / Service
+**Calcul du delai :** jitter exponentiel basé sur `InitialDelayMs` avec variation aléatoire jusqu'à `MaxJitterMs`
+
+### 2. PollyDeadlockRetryPolicy
+
+Implementation de `IDeadlockRetryPolicy` via Polly `ResiliencePipeline`.
+
+- Detecte les deadlocks: `SqlException.Number == 1205`
+- Retry avec delai exponentiel + jitter
+- Callback `OnRetry` configurable
+
+### 3. TransactionalExecutor
+
+Orchestre les deux responsabilites :
+1. Ouvre une connexion SQL (via `IDbConnectionProvider`)
+2. Enveloppe dans une transaction avec `IsolationLevel.ReadCommitted`
+3. Delègue l'execution à `IDeadlockRetryPolicy.ExecuteAsync()`
 
 ```csharp
-services.AddDeadlockRetryStack(connectionString);
-services.AddScoped<ISyncWorker, SyncWorker>();
-services.AddHostedService<BackgroundSyncService>();
+// Signature de la methode principale
+Task<T> ExecuteAsync<T>(
+    Func<IDbConnection, IDbTransaction, Task<T>> operation);
 ```
 
-### Tests Unitaires
+### 4. ServiceCollectionExtensions
+
+Point d'entree DI unique pour les consommateurs.
 
 ```csharp
-var mockExecutor = new Mock<ITransactionalExecutor>();
-var repository = new OrderRepository(mockExecutor.Object);
-// Facile à tester - tout est mockable
+services.AddDeadlockRetryStack(
+    connectionString: "Server=...;Database=...;",
+    configureRetry: opt =>
+    {
+        opt.MaxRetries = 5;
+        opt.InitialDelayMs = 100;
+        opt.MaxJitterMs = 50;
+        opt.OnRetry = (attempt, delay) =>
+            Console.WriteLine($"[RETRY {attempt}] dans {delay.TotalMilliseconds:F0}ms");
+    });
+```
+
+Enregistre dans le conteneur DI :
+- `IDeadlockRetryPolicy` -> `PollyDeadlockRetryPolicy` (Singleton)
+- `IDbConnectionProvider` -> `SqlServerConnectionProvider` (Scoped)
+- `ITransactionalExecutor` -> `TransactionalExecutor` (Scoped)
+
+---
+
+## Flux d'Execution
+
+```
+Application
+    │
+    ▼
+ITransactionalExecutor.ExecuteAsync(operation)
+    │
+    ├─ Ouvre connexion SQL (SqlServerConnectionProvider)
+    ├─ Ouvre transaction (IsolationLevel.ReadCommitted)
+    │
+    ▼
+IDeadlockRetryPolicy.ExecuteAsync(wrappedOperation)
+    │
+    ├─[1er essai]─ operation(conn, tx) ──> SqlException 1205
+    │              └─ Polly: attendre delai_1, retry
+    │
+    ├─[2eme essai]─ operation(conn, tx) ──> SqlException 1205
+    │              └─ Polly: attendre delai_2, retry
+    │
+    └─[3eme essai]─ operation(conn, tx) ──> Succes
+                   └─ COMMIT transaction
+                      Retourner resultat
 ```
 
 ---
 
-## Avantages Clés
+## Tests Unitaires (29 tests)
 
-| Avantage | Détail |
-|----------|--------|
-| **Découplage** | Chaque couche a un rôle bien défini, testable indépendamment |
-| **Réutilisabilité** | Utilise la même stack dans API, Workers, Console apps |
-| **Extensibilité** | Swap implementations (Polly → autre, SQL → Postgres) |
-| **Configuration** | Options validées, callbacks pour monitoring/logging |
-| **Backward Compat** | Code existant continue de fonctionner (avec warnings) |
-| **Documentation** | `INTEGRATION_GUIDE.md` + exemples concrets |
+| Classe de test | Tests | Ce qui est teste |
+|----------------|-------|-----------------|
+| `DeadlockRetryPolicyOptionsTests` | 7 | Valeurs par defaut, validation MaxRetries/delays |
+| `PollyDeadlockRetryPolicyTests` | 12 | Succes immediat, retry sur deadlock, callback OnRetry, max retries atteint |
+| `TransactionalExecutorTests` | 10 | Ouverture conn/tx, commit, rollback, propagation exception |
 
----
+**Caracteristique cle :** tous les tests sont 100% en memoire (Moq), aucune base SQL requise.
 
-## Fichiers Créés / Modifiés
-
-### Nouveaux Fichiers (Abstractions)
-
-- ✅ `RetryPolicies/IDeadlockRetryPolicy.cs`
-- ✅ `RetryPolicies/DeadlockRetryPolicyOptions.cs`  
-- ✅ `RetryPolicies/PollyDeadlockRetryPolicy.cs`
-- ✅ `DataAccess/IDbConnectionProvider.cs`
-- ✅ `DataAccess/SqlServerConnectionProvider.cs`
-- ✅ `DataAccess/ITransactionalExecutor.cs`
-- ✅ `DataAccess/TransactionalExecutor.cs`
-- ✅ `Extensions/ServiceCollectionExtensions.cs`
-
-### Fichiers Refactorisés
-
-- ✅ `DeadlockRetryService.cs` (maintenant wrapper legacy)
-- ✅ `ManageDeadlockPolly.csproj` (ajout `Microsoft.Extensions.DependencyInjection.Abstractions`)
-
-### Documentation
-
-- ✅ `docs/INTEGRATION_GUIDE.md` (guide complet avec exemples)
-- ✅ `Examples/ReusableIntegrationExample.cs` (exemple pratique)
-- ✅ `docs/ARCHITECTURE_SUMMARY.md` (ce fichier)
+`SqlExceptionHelper` utilise la reflexion pour instancier un vrai `SqlException(1205)`
+(impossible à construire normalement car le constructeur est interne).
 
 ---
 
-## Validation
+## Decisions de Design
 
-✅ **Build:** `dotnet build` réussit (3 warnings seulement pour dépréciation)  
-✅ **Docker:** Stack complète fonctionne avec deadlock détecté et retry réussi  
-✅ **Tests:** Pattern visible en logs:
-
-```
-[RETRY 1] Deadlock détecté, retry dans 111ms
-[TX] Transaction validée ✓
-Succes: les deux opérations se sont terminées après retry
-```
-
----
-
-## Prochaines Étapes (Optionnel)
-
-- [ ] Publier en NuGet package `DeadlockPolly.Abstractions`
-- [ ] Créer des tests unitaires pour chaque interface
-- [ ] Ajouter benchmarks de performance
-- [ ] Créer une extension pour `MediaR` handlers
-- [ ] Ajouter support pour `Resilience.Core` (Polly v9+)
+| Decision | Choix | Justification |
+|----------|-------|---------------|
+| Framework retry | Polly 8 (ResiliencePipeline) | Standard industrie, testable, extensible |
+| Micro-ORM | Dapper | Leger, performant, compatible transactions |
+| DI | Microsoft.Extensions.DI | Compatible ASP.NET Core, Worker Service, etc. |
+| Isolation transaction | ReadCommitted | Equilibre entre consistance et concurrence |
+| Jitter delai | Exponentiel + aleatoire | Evite le "thundering herd" sur deadlock simultanes |
+| Structure solution | 3 projets | Separation des responsabilites, Core reutilisable |
 
 ---
 
-## Conclusion
-
-L'architecture est maintenant **enterprise-grade**, **testable**, et **réutilisable** dans n'importe quel projet .NET sans dépendre de la démo.
-
-**Avant:** Logique Polly mixée dans `DeadlockRetryService`  
-**Après:** Architecture en couches avec interfaces, DI, et overflow patterns
+**Suite -> [INTEGRATION_GUIDE.md](./INTEGRATION_GUIDE.md)**

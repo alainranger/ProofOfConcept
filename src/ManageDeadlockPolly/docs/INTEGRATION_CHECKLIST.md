@@ -1,354 +1,147 @@
-## 📋 Checklist d'Intégration
+# Checklist d'Integration
 
-Utilise cette checklist pour intégrer Polly + Dapper + Deadlock Retry dans ton projet existant.
-
----
-
-### ✅ Étape 1: Dépendances
-
-```bash
-dotnet add package Polly --version 8.4.2
-dotnet add package Polly.Core --version 8.4.2
-dotnet add package Dapper --version 2.1.15
-dotnet add package Microsoft.Data.SqlClient --version 5.1.5
-```
-
-**Fichier csproj** doit contenir:
-
-```xml
-<ItemGroup>
-    <PackageReference Include="Dapper" Version="2.1.15" />
-    <PackageReference Include="Microsoft.Data.SqlClient" Version="5.1.5" />
-    <PackageReference Include="Polly" Version="8.4.2" />
-    <PackageReference Include="Polly.Core" Version="8.4.2" />
-</ItemGroup>
-```
+Liste de verification pour integrer `DeadlockPolly.Core` en production.
 
 ---
 
-### ✅ Étape 2: Classe Service (Copier-coller DeadlockRetryService.cs)
+## Phase 1 : Setup Initial
 
-Place dans ton projet:
+- [ ] Reference projet ou package NuGet ajoutee
+- [ ] `dotnet build` reussit sans erreurs
+- [ ] `dotnet test` reussit (29/29)
 
-```
-src/
-  Services/
-    DeadlockRetryService.cs
-```
+### Enregistrement DI
 
-Adapter le namespace si besoin.
-
----
-
-### ✅ Étape 3: Dependency Injection (Si tu utilises DI)
+- [ ] `AddDeadlockRetryStack()` appele dans `Program.cs` / `Startup.cs`
+- [ ] Chaine de connexion provient de la configuration (pas hardcodee)
+- [ ] `MaxRetries` configure selon les besoins (recommande: 3 a 5)
+- [ ] `OnRetry` configure avec logging adapte
 
 ```csharp
-// Startup.cs ou Program.cs
-services.AddSingleton(new DeadlockRetryService(connectionString, maxRetries: 5));
-services.AddScoped<MyRepository>();
+// Exemple minimal
+services.AddDeadlockRetryStack(
+    connectionString: config.GetConnectionString("Default")!,
+    configureRetry: opt => opt.MaxRetries = 3);
 ```
 
-Puis dans le Repository:
+---
+
+## Phase 2 : Implementation des Repositories
+
+- [ ] Repositories injectent `ITransactionalExecutor` (pas `TransactionalExecutor` directement)
+- [ ] Toutes les operations SQL passent par `executor.ExecuteAsync()`
+- [ ] Aucun `SqlConnection` ouvert manuellement dans les repositories
+- [ ] Aucune transaction geree manuellement
 
 ```csharp
-public class MyRepository
+// Correct
+public class MyRepo(ITransactionalExecutor executor)
 {
-    private readonly DeadlockRetryService _retryService;
-
-    public MyRepository(DeadlockRetryService retryService)
-    {
-        _retryService = retryService;
-    }
-
-    public async Task<bool> UpdateAsync(int id, string newValue)
-    {
-        return await _retryService.ExecuteWithDeadlockRetryAsync(
-            async (conn, tx) =>
-            {
-                await conn.ExecuteAsync(
-                    "UPDATE MyTable SET Value = @Value WHERE Id = @Id",
-                    new { Id = id, Value = newValue },
-                    transaction: tx
-                );
-                return true;
-            }
-        );
-    }
+    public Task<int> InsertAsync(MyEntity e) =>
+        executor.ExecuteAsync((conn, tx) =>
+            conn.ExecuteScalarAsync<int>(Sql, e, tx));
 }
 ```
 
 ---
 
-### ✅ Étape 4: Logging (Remplacer Console.WriteLine)
+## Phase 3 : Tests
 
-Ajouter au `DeadlockRetryService`:
+### Tests Unitaires
 
-```csharp
-using Microsoft.Extensions.Logging;
-
-public class DeadlockRetryService
-{
-    private readonly ILogger<DeadlockRetryService> _logger;
-
-    public DeadlockRetryService(string connectionString, ILogger<DeadlockRetryService> logger, int maxRetries = 5)
-    {
-        _connectionString = connectionString;
-        _logger = logger;
-        _deadlockRetryPolicy = BuildDeadlockRetryPolicy(maxRetries);
-    }
-
-    private IAsyncPolicy<T> BuildDeadlockRetryPolicy<T>(int maxRetries)
-    {
-        return Policy
-            .Handle<SqlException>(ex => ex.Number == 1205)
-            .OrResult<T>(r => false)
-            .WaitAndRetryAsync<T>(
-                retryCount: maxRetries,
-                sleepDurationProvider: retryAttempt =>
-                {
-                    var baseDelay = TimeSpan.FromMilliseconds(100 * Math.Pow(2, retryAttempt - 1));
-                    var jitter = TimeSpan.FromMilliseconds(Random.Shared.Next(0, 50));
-                    return baseDelay.Add(jitter);
-                },
-                onRetry: (outcome, timespan, retryCount, context) =>
-                {
-                    _logger.LogWarning(
-                        $"Deadlock détecté (attempt {retryCount}), retry dans {timespan.TotalMilliseconds:F0}ms"
-                    );
-                }
-            );
-    }
-
-    // ... reste du code
-}
-```
-
-DI avec Serilog (exemple):
+- [ ] Repositories testes avec `Mock<ITransactionalExecutor>`
+- [ ] Comportement retry teste (succes apres N echecs)
+- [ ] Comportement exception teste (echec apres MaxRetries)
 
 ```csharp
-// Program.cs
-services.AddLogging(config =>
-{
-    config.ClearProviders();
-    config.AddSerilog(new LoggerConfiguration()
-        .MinimumLevel.Debug()
-        .WriteTo.File("logs/app-.txt", rollingInterval: RollingInterval.Day)
-        .CreateLogger());
-});
+// Pattern de test unitaire
+var mockExecutor = new Mock<ITransactionalExecutor>();
+mockExecutor
+    .Setup(x => x.ExecuteAsync(It.IsAny<Func<IDbConnection, IDbTransaction, Task<int>>>()))
+    .ReturnsAsync(42);
 
-services.AddSingleton(sp => new DeadlockRetryService(
-    connectionString,
-    sp.GetRequiredService<ILogger<DeadlockRetryService>>(),
-    maxRetries: 5
-));
+var repo = new MyRepo(mockExecutor.Object);
+var result = await repo.InsertAsync(entity);
+Assert.Equal(42, result);
 ```
+
+### Tests d'Integration
+
+- [ ] Tests d'integration configurent `InitialDelayMs = 10` (delais courts)
+- [ ] Base de tests separee ou transactions rollback en fin de test
+- [ ] Test de simulation deadlock present (optionnel)
 
 ---
 
-### ✅ Étape 5: Monitoring & Telemetry (Optionnel)
+## Phase 4 : Configuration Production
 
-Ajouter Application Insights:
+### Connection String
 
-```csharp
-// Program.cs
-services.AddApplicationInsightsTelemetry();
-```
-
-Modifier `DeadlockRetryService`:
-
-```csharp
-using Microsoft.ApplicationInsights;
-
-public class DeadlockRetryService
-{
-    private readonly TelemetryClient _telemetryClient;
-
-    public DeadlockRetryService(
-        string connectionString,
-        ILogger<DeadlockRetryService> logger,
-        TelemetryClient telemetryClient,
-        int maxRetries = 5)
-    {
-        _connectionString = connectionString;
-        _logger = logger;
-        _telemetryClient = telemetryClient;
-        // ...
-    }
-
-    private IAsyncPolicy<T> BuildDeadlockRetryPolicy<T>(int maxRetries)
-    {
-        return Policy
-            .Handle<SqlException>(ex => ex.Number == 1205)
-            .OrResult<T>(r => false)
-            .WaitAndRetryAsync<T>(
-                retryCount: maxRetries,
-                sleepDurationProvider: retryAttempt =>
-                {
-                    var baseDelay = TimeSpan.FromMilliseconds(100 * Math.Pow(2, retryAttempt - 1));
-                    var jitter = TimeSpan.FromMilliseconds(Random.Shared.Next(0, 50));
-                    return baseDelay.Add(jitter);
-                },
-                onRetry: (outcome, timespan, retryCount, context) =>
-                {
-                    _logger.LogWarning($"Deadlock detected (attempt {retryCount})");
-                    
-                    // Envoyer telemetry à AppInsights
-                    _telemetryClient.TrackEvent("DeadlockRetry", new Dictionary<string, string>
-                    {
-                        { "Attempt", retryCount.ToString() },
-                        { "DelayMs", timespan.TotalMilliseconds.ToString("F0") }
-                    });
-                }
-            );
-    }
-}
-```
-
----
-
-### ✅ Étape 6: Tests Unitaires
-
-```csharp
-// Tests.cs
-using Xunit;
-using Moq;
-using System.Data;
-
-public class DeadlockRetryServiceTests
-{
-    [Fact]
-    public async Task RetryOnDeadlock_ShouldSucceedEventually()
-    {
-        // Arrange
-        var connectionString = "Server=...";
-        var service = new DeadlockRetryService(connectionString, maxRetries: 3);
-        
-        var callCount = 0;
-        
-        // Act
-        var result = await service.ExecuteWithDeadlockRetryAsync(async (conn, tx) =>
-        {
-            callCount++;
-            if (callCount < 2)
-                throw new SqlException(); // Simuler deadlock
-            return "success";
-        });
-
-        // Assert
-        Assert.Equal("success", result);
-        Assert.Equal(2, callCount);
-    }
-
-    [Fact]
-    public async Task MaxRetriesExceeded_ShouldThrow()
-    {
-        // Arrange
-        var connectionString = "Server=...";
-        var service = new DeadlockRetryService(connectionString, maxRetries: 1);
-
-        // Act & Assert
-        await Assert.ThrowsAsync<SqlException>(async () =>
-        {
-            await service.ExecuteWithDeadlockRetryAsync(async (conn, tx) =>
-            {
-                throw new SqlException();
-            });
-        });
-    }
-}
-```
-
----
-
-### ✅ Étape 7: Configuration Recommandée (appsettings.json)
+- [ ] Chaine de connexion dans `appsettings.json` (pas dans le code)
+- [ ] Secrets geres via User Secrets / Azure Key Vault / environnement
+- [ ] `Connection Timeout` configure (recommande: 30s)
+- [ ] `Command Timeout` configure si besoin
 
 ```json
+// appsettings.json
 {
   "ConnectionStrings": {
-    "DefaultConnection": "Server=localhost,1433;Database=MyDb;User Id=sa;Password=***;Encrypt=false;TrustServerCertificate=true;"
-  },
-  "Polly": {
-    "DeadlockRetry": {
-      "MaxRetryAttempts": 5,
-      "InitialDelayMs": 100,
-      "BackoffMultiplier": 2,
-      "MaxJitterMs": 50
-    },
-    "CircuitBreaker": {
-      "FailureThreshold": 0.5,
-      "MinimumThroughput": 4,
-      "TimeoutSeconds": 30
-    }
+    "Default": "Server=prod-sql;Database=MyDb;Integrated Security=True;Connection Timeout=30;"
   }
 }
 ```
 
-Puis charger:
+### Options Retry
+
+| Parametre | Developpement | Production |
+|-----------|--------------|------------|
+| `MaxRetries` | 2 | 3 a 5 |
+| `InitialDelayMs` | 50 | 100 |
+| `MaxJitterMs` | 500 | 2000 a 5000 |
+
+---
+
+## Phase 5 : Observabilite
+
+- [ ] `OnRetry` callback logue avec niveau WARNING
+- [ ] Metriques deadlock comptees (compteur Prometheus / Application Insights)
+- [ ] Alertes configurees si taux de retry > seuil (ex: > 5% des transactions)
 
 ```csharp
-// Program.cs
-var config = builder.Configuration;
-var pollyConfig = config.GetSection("Polly:DeadlockRetry");
+opt.OnRetry = (attempt, delay) =>
+{
+    logger.LogWarning(
+        "Deadlock SQL - tentative {Attempt} dans {Delay}ms | {Endpoint}",
+        attempt,
+        (int)delay.TotalMilliseconds,
+        httpContext?.Request.Path);
 
-services.AddSingleton(sp => new DeadlockRetryService(
-    config.GetConnectionString("DefaultConnection")!,
-    sp.GetRequiredService<ILogger<DeadlockRetryService>>(),
-    maxRetries: int.Parse(pollyConfig["MaxRetryAttempts"] ?? "5")
-));
+    metrics.IncrementCounter("sql_deadlock_retries_total");
+};
 ```
 
 ---
 
-## 🚨 Erreurs Courantes
+## Phase 6 : validation Finale
 
-| Problème | Cause | Solution |
-|----------|-------|----------|
-| `SqlException: timeout` | Requête trop lente | Ré-indexer, optimiser query, augmenter `Connection Timeout` |
-| `Deadlock keeps happening` | Ordre d'accès inconsistent | Toujours accéder aux ressources dans le même ordre (ID croissant) |
-| `Retry politique ne triggère pas` | Exception pas `SqlException` | Vérifier type d'exception exact, ajouter predicate pour autre types |
-| `Performance dégradée après retry` | Backoff trop agressif | Réduire delays: `100ms * 1.5^attempt` au lieu de `2^attempt` |
-| `Circuit breaker s'ouvre trop tôt` | Seuil trop bas | Augmenter `handledEventsAllowedBeforeBreaking` ou `MinimumThroughput` |
-| `Deadlock pendant tests` | Transactions trop longues | Réduire scope de la transaction, éviter I/O dedans |
+- [ ] `dotnet build ManageDeadlockPolly.slnx` -> 0 warnings, 0 errors
+- [ ] `dotnet test ManageDeadlockPolly.slnx` -> 29/29 tests passes
+- [ ] Tests d'integration passes contre base de test
+- [ ] Review de code effectuee sur les repositories migrés
+- [ ] Documentation interne mise a jour
 
 ---
 
-## 📈 Performance Tips
+## Anti-patterns a Eviter
 
-- **Transactions courtes**: 10-100ms idéal
-- **Isolation Level**: `ReadCommitted` par défaut (bon compromis)
-- **Indexes**: Créer sur colonnes WHERE/JOIN
-- **Batch processing**: Regrouper updates pour réduire contexte-switches
-- **Async everywhere**: Utiliser `async/await` pour ne pas bloquer threads
-- **Connection pooling**: SQL Client pool automatique, vérifier `Min Pool Size` si besoin
-
----
-
-## 🏆 Best Practices Résumé
-
-```csharp
-// ✅ BON
-using (var tx = await conn.BeginTransactionAsync())
-{
-    await conn.ExecuteAsync("UPDATE A SET ...", tx: tx);
-    await conn.ExecuteAsync("UPDATE B SET ...", tx: tx);
-    // Tout dans l'ordre (A, puis B, toujours)
-    await tx.CommitAsync();
-}
-
-// ❌ MAUVAIS
-using (var tx = await conn.BeginTransactionAsync())
-{
-    await http.GetAsync(...); // Appel externe dans TX!
-    await httpClient.PostAsync(...);
-    await Task.Delay(5000); // Attente longue!
-    await conn.ExecuteAsync("UPDATE ...", tx: tx);
-}
-
-// ❌ TRÈS MAUVAIS
-// Tx 1: Update A, Update B
-// Tx 2: Update B, Update A  ← Deadlock!
-```
+| Anti-pattern | Probleme | Solution |
+|---|---|---|
+| Injecter `TransactionalExecutor` directement | Couplage fort, difficile a mocker | Injecter `ITransactionalExecutor` |
+| Ouvrir `SqlConnection` dans le repository | Bypass le retry | Utiliser `executor.ExecuteAsync()` |
+| Hardcoder la connection string | Securite, deplacement entre envs | Utiliser la configuration |
+| `MaxRetries = 0` | Desactive le retry | Minimum 1, recommande 3 |
+| Pas de `OnRetry` callback en prod | Deadlocks invisibles | Toujours logger les retries |
 
 ---
 
-**Ready to integrate? Start with Step 1 → Step 7! 🚀**
+**Retour -> [INTEGRATION_GUIDE.md](./INTEGRATION_GUIDE.md)**

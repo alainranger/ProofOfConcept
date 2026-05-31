@@ -1,326 +1,199 @@
-## 🧪 Guide de Test Manuelle - Reproduction des Deadlocks
+# Guide de Test Manuel
 
-Ce guide explique comment reproduire manuellement un deadlock SQL Server pour valider que Polly vraiment retry.
+Tester la gestion des deadlocks avec une vraie base SQL Server.
 
 ---
 
-## 1️⃣ Préparation: Démarrer les conteneurs
+## Prerequis
+
+- Docker Desktop installe et en cours d'execution
+- Port 1433 libre sur la machine
+
+---
+
+## 1. Demarrer l'Infrastructure
 
 ```bash
-docker-compose up -d
+cd /Users/alainranger/sources/ProofOfConcept/src/ManageDeadlockPolly
+
+# Demarrer SQL Server + l'application demo
+docker-compose up --build
+
+# OU demarrer SQL Server seul (pour les tests manuels)
+docker-compose up sqlserver -d
 ```
 
-Attendre ~15s que SQL Server soit opérationnel.
+Attendre le message dans les logs :
+```
+sqlserver  | SQL Server is now ready for client connections.
+```
+(environ 20 secondes)
 
 ---
 
-## 2️⃣ Se connecter à SQL Server
+## 2. Verifier la Connexion SQL
 
 ```bash
-# Option A: Avec docker exec
-docker exec -it manage_deadlock_polly-sql-server-1 /opt/mssql-tools/bin/sqlcmd \
-  -S localhost -U sa -P 'YourStrong!Pass2024'
+# Depuis la machine hote
+docker exec -it <container_sqlserver> /opt/mssql-tools18/bin/sqlcmd     -S localhost -U sa -P "$SA_PASSWORD"     -C -Q "SELECT @@VERSION"
+```
 
-# Option B: Avec Azure Data Studio ou SQL Server Management Studio
-# Server: localhost,1433
-# Login: sa
-# Password: YourStrong!Pass2024
+Resultat attendu : version SQL Server 2022.
+
+---
+
+## 3. Tester le Schema
+
+La demo cree automatiquement la table `DeadlockTest` au demarrage.
+
+```sql
+-- Verifier la table
+SELECT Id, Value, LastUpdated FROM dbo.DeadlockTest;
+
+-- Verifier les enregistrements de test
+SELECT Id, Value, LastUpdated FROM dbo.DeadlockTest ORDER BY Id;
 ```
 
 ---
 
-## 3️⃣ Vérifier l'état initial
+## 4. Simuler un Deadlock Manuel
 
+### Methode : Deux Sessions Concurrentes
+
+Ouvrir **deux fenetres de terminal** separees.
+
+**Session 1 :**
 ```sql
-USE DeadlockTestDb;
-GO
-
-SELECT * FROM dbo.DeadlockTest;
-GO
-
--- Résultat attendu:
--- Id   Value
--- --   -----
--- 1    0
--- 2    0
-```
-
----
-
-## 4️⃣ Reproduire le Deadlock Manuellement
-
-### Scénario: 2 Sessions SQL concurrentes
-
-**Ordre critique**:
-
-1. Ouvrir 2 sessions SQL (terminal 1 et terminal 2)
-2. Exécuter **simultanément** le code dessous
-
-### Session 1 (Terminal A) - Exécute IMMÉDIATEMENT après
-
-```sql
-USE DeadlockTestDb;
-GO
-
 BEGIN TRANSACTION;
-PRINT 'SESSION 1: Transaction démarrée';
 
-UPDATE dbo.DeadlockTest SET Value = Value + 100 WHERE Id = 1;
-PRINT 'SESSION 1: Update Id=1 fait, attente 3 secondes...';
+-- Verrouiller l'enregistrement 1
+UPDATE dbo.DeadlockTest SET Value = Value + 1 WHERE Id = 1;
 
-WAITFOR DELAY '00:00:03';
+-- Attendre avant de continuer (laisser Session 2 demarrer)
+WAITFOR DELAY '00:00:05';
 
-PRINT 'SESSION 1: Tentative Update Id=2...';
-UPDATE dbo.DeadlockTest SET Value = Value + 100 WHERE Id = 2;
+-- Tenter de verrouiller l'enregistrement 2 (deadlock si Session 2 l'a pris)
+UPDATE dbo.DeadlockTest SET Value = Value + 1 WHERE Id = 2;
 
-PRINT 'SESSION 1: Commit...';
 COMMIT TRANSACTION;
-
-SELECT * FROM dbo.DeadlockTest;
-GO
 ```
 
-### Session 2 (Terminal B) - Exécute **Pendant que Session 1 attend (WAITFOR)**
-
+**Session 2 :**
 ```sql
-USE DeadlockTestDb;
-GO
-
--- Attendre un peu pour que Session 1 verrouille Id=1
-WAITFOR DELAY '00:00:01';
-
 BEGIN TRANSACTION;
-PRINT 'SESSION 2: Transaction démarrée';
 
-UPDATE dbo.DeadlockTest SET Value = Value + 200 WHERE Id = 2;
-PRINT 'SESSION 2: Update Id=2 fait, attente 3 secondes...';
+-- Verrouiller l'enregistrement 2
+UPDATE dbo.DeadlockTest SET Value = Value + 1 WHERE Id = 2;
 
-WAITFOR DELAY '00:00:03';
+-- Tenter de verrouiller l'enregistrement 1 (deadlock avec Session 1)
+UPDATE dbo.DeadlockTest SET Value = Value + 1 WHERE Id = 1;
 
-PRINT 'SESSION 2: Tentative Update Id=1...';
-UPDATE dbo.DeadlockTest SET Value = Value + 200 WHERE Id = 1;
-
-PRINT 'SESSION 2: Commit...';
 COMMIT TRANSACTION;
-
-SELECT * FROM dbo.DeadlockTest;
-GO
 ```
 
-### Résultat Attendu
-
-Une des 2 sessions affichera:
-
-```
-Msg 1205, Level 13, State 13, Server e1234567890ab, Line 10
-Deadlock victim. The transaction (process ID 123) was deadlocked on 
-{lock} resources with another process and has been chosen as the deadlock victim.
-```
-
-L'autre session poursuivra normalement.
+**Resultat attendu :**
+- SQL Server choisit une victime (l'une des sessions recoit l'erreur 1205)
+- L'application detecte `SqlException.Number == 1205` et retry automatiquement
+- Les logs affichent `[RETRY N] Deadlock detecte, retry dans Xms`
 
 ---
 
-## 5️⃣ Vérifier l'état après deadlock
+## 5. Valider les Logs de Retry
 
-```sql
-SELECT * FROM dbo.DeadlockTest;
-GO
+```bash
+# Logs de l'application demo
+docker-compose logs -f deadlock-app
 
--- Note: Seule une transaction a réussi
--- Donc les valeurs ne seront pas cohérentes
--- (Depends quelle session a gagné)
+# Filtrer les lignes de retry
+docker-compose logs deadlock-app | grep -i "retry\|deadlock\|RETRY"
+```
+
+Sortie attendue lors d'un deadlock :
+```
+deadlock-app  | [RETRY 1] Deadlock detecte, retry dans 111ms
+deadlock-app  | [RETRY 2] Deadlock detecte, retry dans 247ms
+deadlock-app  | [TX] Transaction validee
 ```
 
 ---
 
-## 6️⃣ Reset pour le prochain test
+## 6. Tests de Charge (optionnel)
 
-```sql
-UPDATE dbo.DeadlockTest SET Value = 0;
-GO
+Lancer plusieurs instances concurrentes pour provoquer des deadlocks naturels :
 
-SELECT * FROM dbo.DeadlockTest;
-GO
+```bash
+# Depuis la machine hote - lancer 5 instances en parallele
+for i in {1..5}; do
+    dotnet run --project src/DeadlockPolly.Demo &
+done
+wait
+```
+
+Observer les retries dans les logs.
+
+---
+
+## 7. Nettoyer
+
+```bash
+# Arreter les conteneurs
+docker-compose down
+
+# Arreter + supprimer les volumes (repart a zero)
+docker-compose down -v
+
+# Verifier que le port est libere
+lsof -i :1433
 ```
 
 ---
 
-## 🎯 Variantes de Deadlock
-
-### Variante A: Escalade de verrou (LOCK ESCALATION)
+## 8. Commandes SQL de Reference
 
 ```sql
--- Session 1
-BEGIN TRAN;
-UPDATE dbo.DeadlockTest SET Value = Value + 1 WHERE Id = 1;
-UPDATE dbo.DeadlockTest SET Value = Value + 1 WHERE Id = 2;
-UPDATE dbo.DeadlockTest SET Value = Value + 1 WHERE Id = 3;
-COMMIT TRAN;
-
--- Session 2 - Inverse
-BEGIN TRAN;
-UPDATE dbo.DeadlockTest SET Value = Value + 1 WHERE Id = 3;
-UPDATE dbo.DeadlockTest SET Value = Value + 1 WHERE Id = 2;
-UPDATE dbo.DeadlockTest SET Value = Value + 1 WHERE Id = 1;
-COMMIT TRAN;
-```
-
-### Variante B: Deadlock sur Index
-
-```sql
--- Créer un index pour augmenter contention
-CREATE INDEX IX_Value ON dbo.DeadlockTest(Value);
-
--- Session 1
-BEGIN TRAN;
-SELECT * FROM dbo.DeadlockTest WHERE Value > 0 WITH (HOLDLOCK);
-UPDATE dbo.DeadlockTest SET Value = Value + 1 WHERE Id = 2;
-COMMIT TRAN;
-
--- Session 2
-BEGIN TRAN;
-SELECT * FROM dbo.DeadlockTest WHERE Value > 0 WITH (HOLDLOCK);
-UPDATE dbo.DeadlockTest SET Value = Value + 1 WHERE Id = 1;
-COMMIT TRAN;
-```
-
-### Variante C: Conversion de verrou (Lock Conversion)
-
-```sql
--- Session 1
-BEGIN TRAN;
-SELECT * FROM dbo.DeadlockTest WITH (UPDLOCK);
-WAITFOR DELAY '00:00:03';
-UPDATE dbo.DeadlockTest SET Value = Value + 1 WHERE Id = 1;
-COMMIT TRAN;
-
--- Session 2
-BEGIN TRAN;
-SELECT * FROM dbo.DeadlockTest WITH (UPDLOCK);
-UPDATE dbo.DeadlockTest SET Value = Value + 1 WHERE Id = 2;
-COMMIT TRAN;
-```
-
----
-
-## 📊 Analyser les Deadlocks SQL Server
-
-### Activer la trace de deadlock
-
-```sql
--- Dans SQL Server Management Studio ou sqlcmd
-USE master;
-GO
-
-DBCC TRACEON(1222, -1);  -- Enable deadlock graph
-GO
-
--- Les deadlocks seront maintenant loggés dans l'Event Log
--- Vérifier: SQL Server logs → "Deadlock graph" 
-```
-
-### Voir l'historique des sessions bloquées
-
-```sql
--- En temps réel
+-- Voir les verrous actifs
 SELECT
     request_session_id,
-    blocking_session_id,
-    command,
-    wait_type,
-    wait_duration_ms
-FROM sys.dm_exec_requests
-WHERE blocking_session_id > 0;
-GO
-
--- Détails des verrous
-SELECT
     resource_type,
     resource_description,
     request_mode,
-    request_type,
     request_status
 FROM sys.dm_tran_locks
-WHERE request_session_id = 123;  -- Remplacer 123 par session ID
-GO
+WHERE resource_database_id = DB_ID();
+
+-- Voir les transactions actives
+SELECT
+    session_id,
+    transaction_id,
+    is_local,
+    is_enlisted
+FROM sys.dm_tran_session_transactions;
+
+-- Historique des deadlocks (trace par defaut)
+SELECT
+    XEventData.XEvent.value('(data/value)[1]', 'varchar(max)') AS DeadlockGraph
+FROM (
+    SELECT CAST(target_data AS XML) AS TargetData
+    FROM sys.dm_xe_session_targets t
+    JOIN sys.dm_xe_sessions s ON t.event_session_address = s.address
+    WHERE s.name = 'system_health'
+    AND t.target_name = 'ring_buffer'
+) AS Data
+CROSS APPLY TargetData.nodes('RingBufferTarget/event[@name="xml_deadlock_report"]') AS XEventData (XEvent);
 ```
 
 ---
 
-## 🔍 Simulation Automatisée (C#)
+## 9. Troubleshooting
 
-Pour reproduire directement depuis C#:
-
-```csharp
-// Ajouter dans Program.cs après les tests normaux
-
-Console.WriteLine("\n3️⃣  Test 3: Simulation de Deadlock Chronométrée\n");
-Console.WriteLine("-".PadRight(50, '-'));
-
-try
-{
-    var task1 = Task.Run(() =>
-    {
-        using var conn = new SqlConnection(connectionString);
-        conn.Open();
-        using var tx = conn.BeginTransaction();
-
-        conn.Execute("UPDATE dbo.DeadlockTest SET Value = Value + 1 WHERE Id = 1", transaction: tx);
-        Thread.Sleep(2000); // Fenêtre de contention
-        conn.Execute("UPDATE dbo.DeadlockTest SET Value = Value + 1 WHERE Id = 2", transaction: tx);
-
-        tx.Commit();
-        Console.WriteLine("✓ Task1 terminée");
-    });
-
-    var task2 = Task.Run(() =>
-    {
-        Thread.Sleep(500); // Décalage pour contention garantie
-        
-        using var conn = new SqlConnection(connectionString);
-        conn.Open();
-        using var tx = conn.BeginTransaction();
-
-        conn.Execute("UPDATE dbo.DeadlockTest SET Value = Value + 1 WHERE Id = 2", transaction: tx);
-        Thread.Sleep(2000);
-        conn.Execute("UPDATE dbo.DeadlockTest SET Value = Value + 1 WHERE Id = 1", transaction: tx);
-
-        tx.Commit();
-        Console.WriteLine("✓ Task2 terminée");
-    });
-
-    Task.WaitAll(task1, task2);
-    Console.WriteLine("✓ Deadlock reproduced et géré");
-}
-catch (Exception ex)
-{
-    Console.WriteLine($"✗ Erreur: {ex.Message}");
-}
-```
+| Probleme | Cause Probable | Solution |
+|----------|----------------|---------|
+| `Connection refused :1433` | SQL Server pas encore pret | Attendre 30s, verifier `docker-compose logs sqlserver` |
+| `Login failed for user 'sa'` | Mauvais mot de passe | Verifier `MSSQL_SA_PASSWORD` dans `docker-compose.yml` |
+| `Cannot open database` | Base pas creee | La demo la cree au demarrage, relancer l'app |
+| Pas de deadlock genere | Transactions pas assez concurrentes | Augmenter parallelisme ou utiliser WAITFOR |
+| `Port 1433 already in use` | SQL Server local tourne | `sudo lsof -i :1433` puis `kill -9 <PID>` |
 
 ---
 
-## ✅ Checklist Validation Polly
-
-- [ ] Le deadlock est bien reproduct (Msg 1205 visible)
-- [ ] Polly log les retries ("RETRY 1", "RETRY 2")
-- [ ] Les délais augmententexponentiellement (100ms, 200ms, 400ms)
-- [ ] Au final, l'opération réussit
-- [ ] Les données finales sont cohérentes
-
----
-
-## 🚨 Troubleshooting
-
-| Symptôme | Cause | Fix |
-|----------|-------|-----|
-| Pas de deadlock | Timing off | Augmenter WAITFOR (00:00:05) |
-| Deadlock sur 1 session seulement | Normal | L'autre session gagne, c'est OK |
-| "Timeout" au lieu de "1205" | Requête trop lente | Optimiser index, query |
-| Polly ne retry pas | Exception pas `SqlException` | Vérifier type d'exception en log |
-| Deadlock dans Polly mais retry infini | Max retries insuffisant | Augmenter `maxRetries` parameter |
-
----
-
-**Tip**: Préférer les tests automatisés (`docker-compose up`)pour la CI/CD! 🤖
+**Retour -> [00-START-HERE.md](./00-START-HERE.md)**

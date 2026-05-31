@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/EplToPdfConverter.Console/">
+    <Project Path="EplToPdfConverter.Console/EplToPdfConverter.csproj" />
+  </Folder>
+  <Project Path="EplToPdfConverter.EplBuilder/EplToPdfConverter.EplBuilder.csproj" />
+  <Project Path="EplToPdfConverter.EplToZplConverter/EplToPdfConverter.EplToZplConverter.csproj" />
+  <Project Path="EplToPdfConverter.WebUsb/EplToPdfConverter.WebUsb.csproj" />
+</Solution>

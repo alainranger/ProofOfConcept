@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\EplToPdfConverter.Console\EplToPdfConverter.csproj" />
+        <ProjectReference Include="..\EplToPdfConverter.EplBuilder\EplToPdfConverter.EplBuilder.csproj" />
+        <ProjectReference Include="..\EplToPdfConverter.EplToZplConverter\EplToPdfConverter.EplToZplConverter.csproj" />
+    </ItemGroup>
+
+</Project>

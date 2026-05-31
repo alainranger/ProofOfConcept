@@ -1,0 +1,520 @@
+<!doctype html>
+<html lang="fr">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Zebra WebUSB - Impression etiquette</title>
+    <style>
+        :root {
+            --bg: #f4efe6;
+            --bg-shade: #e7dfd1;
+            --surface: #fffdf8;
+            --ink: #1a1610;
+            --accent: #006d77;
+            --accent-2: #e76f51;
+            --ok: #2a9d8f;
+            --warn: #b42318;
+            --border: #d9cdbb;
+            --shadow: 0 20px 60px rgba(34, 29, 20, 0.12);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+            color: var(--ink);
+            background:
+                radial-gradient(circle at 20% 10%, #fff9ed 0%, transparent 45%),
+                radial-gradient(circle at 80% 85%, #efe7da 0%, transparent 35%),
+                linear-gradient(140deg, var(--bg), var(--bg-shade));
+            min-height: 100vh;
+            padding: 2rem 1rem;
+        }
+
+        .page {
+            max-width: 1100px;
+            margin: 0 auto;
+            display: grid;
+            gap: 1rem;
+        }
+
+        .header {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow);
+            border-radius: 18px;
+            padding: 1rem 1.2rem;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: clamp(1.2rem, 2vw + 1rem, 2rem);
+            letter-spacing: 0.02em;
+        }
+
+        p {
+            margin: 0.4rem 0 0;
+            line-height: 1.45;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 1rem;
+        }
+
+        @media (min-width: 900px) {
+            .grid {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow);
+            border-radius: 18px;
+            padding: 1rem;
+            animation: rise 260ms ease-out;
+        }
+
+        @keyframes rise {
+            from {
+                transform: translateY(10px);
+                opacity: 0;
+            }
+
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        .title {
+            font-size: 1rem;
+            font-weight: 700;
+            margin: 0 0 0.6rem;
+        }
+
+        textarea {
+            width: 100%;
+            min-height: 250px;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 0.75rem;
+            font-family: Consolas, "Courier New", monospace;
+            font-size: 0.88rem;
+            resize: vertical;
+            background: #fff;
+            color: #111;
+        }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 0.65rem;
+        }
+
+        .field {
+            display: flex;
+            flex-direction: column;
+            gap: 0.35rem;
+        }
+
+        .field label {
+            font-size: 0.85rem;
+            font-weight: 700;
+            color: #4a4033;
+        }
+
+        .field input {
+            width: 100%;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 0.55rem 0.65rem;
+            font-size: 0.95rem;
+            background: #fff;
+            color: #111;
+        }
+
+        .pdf-preview {
+            width: 100%;
+            height: 360px;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            background: #fff;
+        }
+
+        .actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.65rem;
+            margin-top: 0.8rem;
+        }
+
+        button {
+            border: 0;
+            border-radius: 999px;
+            padding: 0.6rem 1rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: transform 120ms ease, box-shadow 120ms ease;
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
+        }
+
+        button:hover {
+            transform: translateY(-1px);
+        }
+
+        button.primary {
+            background: var(--accent);
+            color: #fff;
+        }
+
+        button.secondary {
+            background: #ede6db;
+            color: #2d2419;
+        }
+
+        button.danger {
+            background: var(--accent-2);
+            color: #fff;
+        }
+
+        .status {
+            margin-top: 0.9rem;
+            border-left: 4px solid var(--ok);
+            background: #f4fbfa;
+            padding: 0.6rem 0.75rem;
+            border-radius: 10px;
+            font-size: 0.95rem;
+            white-space: pre-wrap;
+        }
+
+        .status.error {
+            border-left-color: var(--warn);
+            background: #fff5f4;
+        }
+
+        .small {
+            font-size: 0.9rem;
+            color: #534b40;
+        }
+    </style>
+</head>
+
+<body>
+    <main class="page">
+        <section class="header">
+            <h1>Impression etiquette Zebra via WebUSB</h1>
+            <p>1) Saisissez les infos metier et generez l'EPL, 2) convertissez/editez le ZPL, 3) previsualisez en PDF,
+                4)
+                connectez l'imprimante USB et imprimez.</p>
+            <p class="small">Le navigateur doit etre compatible WebUSB (Chromium) et l'application doit tourner en HTTPS
+                ou localhost.</p>
+        </section>
+
+        <section class="card">
+            <h2 class="title">Donnees metier de l'etiquette</h2>
+            <div class="form-grid">
+                <div class="field">
+                    <label for="productName">Produit</label>
+                    <input id="productName" type="text" value="Produit Demo" />
+                </div>
+                <div class="field">
+                    <label for="sku">SKU</label>
+                    <input id="sku" type="text" value="123456789" />
+                </div>
+                <div class="field">
+                    <label for="lot">Lot</label>
+                    <input id="lot" type="text" value="LOT-2026-001" />
+                </div>
+                <div class="field">
+                    <label for="expirationDate">Date expiration</label>
+                    <input id="expirationDate" type="text" value="2027-12-31" />
+                </div>
+                <div class="field">
+                    <label for="quantity">Quantite</label>
+                    <input id="quantity" type="number" min="1" value="1" />
+                </div>
+            </div>
+            <div class="actions">
+                <button class="primary" id="btnGenerate">Generer EPL depuis formulaire</button>
+                <button class="secondary" id="btnSample">Charger un exemple</button>
+            </div>
+        </section>
+
+        <section class="grid">
+            <article class="card">
+                <h2 class="title">EPL source</h2>
+                <textarea id="epl" spellcheck="false"></textarea>
+                <div class="actions">
+                    <button class="primary" id="btnConvert">Convertir en ZPL</button>
+                </div>
+            </article>
+
+            <article class="card">
+                <h2 class="title">ZPL pour impression</h2>
+                <textarea id="zpl" spellcheck="false"></textarea>
+                <div class="actions">
+                    <button class="secondary" id="btnPreview">Apercu PDF</button>
+                    <button class="secondary" id="btnConnect">Connecter Zebra USB</button>
+                    <button class="danger" id="btnPrint">Imprimer</button>
+                </div>
+                <div id="status" class="status">Pret.</div>
+            </article>
+        </section>
+
+        <section class="card">
+            <h2 class="title">Apercu PDF</h2>
+            <iframe id="pdfPreview" class="pdf-preview" title="Apercu PDF"></iframe>
+        </section>
+    </main>
+
+    <script>
+        const productNameInput = document.getElementById("productName");
+        const skuInput = document.getElementById("sku");
+        const lotInput = document.getElementById("lot");
+        const expirationDateInput = document.getElementById("expirationDate");
+        const quantityInput = document.getElementById("quantity");
+
+        const eplTextarea = document.getElementById("epl");
+        const zplTextarea = document.getElementById("zpl");
+        const pdfPreview = document.getElementById("pdfPreview");
+        const statusBox = document.getElementById("status");
+
+        const btnGenerate = document.getElementById("btnGenerate");
+        const btnSample = document.getElementById("btnSample");
+        const btnConvert = document.getElementById("btnConvert");
+        const btnPreview = document.getElementById("btnPreview");
+        const btnConnect = document.getElementById("btnConnect");
+        const btnPrint = document.getElementById("btnPrint");
+
+        let usbDevice = null;
+        let claimedInterface = null;
+        let outEndpoint = null;
+        let previewObjectUrl = null;
+
+        function setStatus(message, isError = false) {
+            statusBox.textContent = message;
+            statusBox.classList.toggle("error", isError);
+        }
+
+        async function generateEplFromForm() {
+            const payload = {
+                productName: productNameInput.value.trim(),
+                sku: skuInput.value.trim(),
+                lot: lotInput.value.trim(),
+                expirationDate: expirationDateInput.value.trim(),
+                quantity: Number.parseInt(quantityInput.value, 10) || 1
+            };
+
+            const response = await fetch("/api/label/build-epl", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify(payload)
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`Generation EPL echouee: ${errorText}`);
+            }
+
+            const data = await response.json();
+            eplTextarea.value = data.epl ?? "";
+            zplTextarea.value = data.zpl ?? "";
+            setStatus("EPL genere depuis le formulaire metier.");
+        }
+
+        async function loadSampleEpl() {
+            const response = await fetch("/api/label/sample-epl");
+            if (!response.ok) {
+                throw new Error("Impossible de recuperer l'exemple EPL.");
+            }
+
+            const payload = await response.json();
+            eplTextarea.value = payload.epl ?? "";
+            setStatus("Exemple EPL charge.");
+        }
+
+        async function convertEplToZpl() {
+            const epl = eplTextarea.value.trim();
+            if (!epl) {
+                setStatus("Le contenu EPL est vide.", true);
+                return;
+            }
+
+            const response = await fetch("/api/label/convert", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({ epl })
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`Conversion echouee: ${errorText}`);
+            }
+
+            const payload = await response.json();
+            zplTextarea.value = payload.zpl ?? "";
+            setStatus("Conversion EPL -> ZPL terminee.");
+        }
+
+        function findOutEndpoint(device) {
+            for (const iface of device.configuration.interfaces) {
+                for (const alternate of iface.alternates) {
+                    const endpoint = alternate.endpoints.find((ep) => ep.direction === "out");
+                    if (endpoint) {
+                        return {
+                            interfaceNumber: iface.interfaceNumber,
+                            endpointNumber: endpoint.endpointNumber
+                        };
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        async function connectUsbPrinter() {
+            if (!navigator.usb) {
+                throw new Error("WebUSB n'est pas supporte par ce navigateur.");
+            }
+
+            usbDevice = await navigator.usb.requestDevice({
+                filters: [
+                    { vendorId: 0x0A5F }
+                ]
+            });
+
+            await usbDevice.open();
+
+            if (!usbDevice.configuration) {
+                await usbDevice.selectConfiguration(1);
+            }
+
+            const endpointInfo = findOutEndpoint(usbDevice);
+            if (!endpointInfo) {
+                throw new Error("Aucun endpoint USB sortant detecte sur cette imprimante.");
+            }
+
+            claimedInterface = endpointInfo.interfaceNumber;
+            outEndpoint = endpointInfo.endpointNumber;
+
+            await usbDevice.claimInterface(claimedInterface);
+
+            setStatus(`Imprimante connectee: ${usbDevice.productName || "Zebra"}.`);
+        }
+
+        async function printZpl() {
+            if (!usbDevice || outEndpoint === null || claimedInterface === null) {
+                setStatus("Connectez d'abord une imprimante USB.", true);
+                return;
+            }
+
+            const zpl = zplTextarea.value.trim();
+            if (!zpl) {
+                setStatus("Le contenu ZPL est vide.", true);
+                return;
+            }
+
+            const encoder = new TextEncoder();
+            const bytes = encoder.encode(zpl.endsWith("\n") ? zpl : `${zpl}\n`);
+            const result = await usbDevice.transferOut(outEndpoint, bytes);
+
+            if (result.status !== "ok") {
+                throw new Error(`Envoi USB non confirme (${result.status}).`);
+            }
+
+            setStatus("ZPL envoye a l'imprimante Zebra.");
+        }
+
+        async function previewPdf() {
+            const zpl = zplTextarea.value.trim();
+            if (!zpl) {
+                setStatus("Le contenu ZPL est vide.", true);
+                return;
+            }
+
+            const response = await fetch("/api/label/preview-pdf", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({ zpl })
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`Apercu PDF echoue: ${errorText}`);
+            }
+
+            const pdfBlob = await response.blob();
+            if (previewObjectUrl) {
+                URL.revokeObjectURL(previewObjectUrl);
+            }
+
+            previewObjectUrl = URL.createObjectURL(pdfBlob);
+            pdfPreview.src = previewObjectUrl;
+            setStatus("Apercu PDF genere.");
+        }
+
+        btnGenerate.addEventListener("click", async () => {
+            try {
+                await generateEplFromForm();
+            } catch (error) {
+                setStatus(error.message || String(error), true);
+            }
+        });
+
+        btnSample.addEventListener("click", async () => {
+            try {
+                await loadSampleEpl();
+            } catch (error) {
+                setStatus(error.message || String(error), true);
+            }
+        });
+
+        btnPreview.addEventListener("click", async () => {
+            try {
+                await previewPdf();
+            } catch (error) {
+                setStatus(error.message || String(error), true);
+            }
+        });
+
+        btnConvert.addEventListener("click", async () => {
+            try {
+                await convertEplToZpl();
+            } catch (error) {
+                setStatus(error.message || String(error), true);
+            }
+        });
+
+        btnConnect.addEventListener("click", async () => {
+            try {
+                await connectUsbPrinter();
+            } catch (error) {
+                setStatus(error.message || String(error), true);
+            }
+        });
+
+        btnPrint.addEventListener("click", async () => {
+            try {
+                await printZpl();
+            } catch (error) {
+                setStatus(error.message || String(error), true);
+            }
+        });
+    </script>
+</body>
+
+</html>
